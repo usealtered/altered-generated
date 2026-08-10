@@ -145,11 +145,18 @@ export const router = os.router({
 
   cursorStatus: os.cursorStatus.handler(async () => {
     const env = getServerEnv();
-    if (!env.CURSOR_API_KEY || !env.CURSOR_OPERATING_AGENT_ID) {
+    if (!env.CURSOR_API_KEY) {
+      return { agentId: null, agentUrl: null, latestRun: null };
+    }
+    const { getSoftDefaultAgentId } = await import("@altered/chat");
+    const ctx = createOperatorContext({ env, knowledgeRoot: knowledgeRoot() });
+    const agentId =
+      (await getSoftDefaultAgentId(ctx)) ?? env.CURSOR_OPERATING_AGENT_ID;
+    if (!agentId) {
       return { agentId: null, agentUrl: null, latestRun: null };
     }
     const cursor = createCursorClient(env.CURSOR_API_KEY);
-    const agent = await cursor.getAgent(env.CURSOR_OPERATING_AGENT_ID);
+    const agent = await cursor.getAgent(agentId);
     if (!agent.latestRunId) {
       return {
         agentId: agent.id,
@@ -171,17 +178,21 @@ export const router = os.router({
 
   promptCursor: os.promptCursor.handler(async ({ input }) => {
     const env = getServerEnv();
+    const { getSoftDefaultAgentId } = await import("@altered/chat");
+    const ctx = createOperatorContext({ env, knowledgeRoot: knowledgeRoot() });
     const reply = await handleOperatorMessage({
-      ctx: createOperatorContext({ env, knowledgeRoot: knowledgeRoot() }),
+      ctx,
       chatThreadId: `api:${input.notifyPhone ?? "system"}`,
       phone: input.notifyPhone ?? "+10000000000",
       text: input.prompt,
     });
     const runMatch = reply.match(/run[=:]?\s*([a-z0-9-]+)/i);
     const jobMatch = reply.match(/job[=:]?\s*([a-z0-9-]+)/i);
+    const soft = await getSoftDefaultAgentId(ctx);
     return {
       jobId: jobMatch?.[1] ?? "unknown",
-      agentId: input.agentId ?? env.CURSOR_OPERATING_AGENT_ID ?? "unknown",
+      agentId:
+        input.agentId ?? soft ?? env.CURSOR_OPERATING_AGENT_ID ?? "unknown",
       runId: runMatch?.[1] && runMatch[1] !== "n/a" ? runMatch[1] : null,
       status: /busy/i.test(reply) ? "busy_retry" : "running",
     };

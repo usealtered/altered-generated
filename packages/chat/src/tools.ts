@@ -1,22 +1,27 @@
 import { tool } from "ai";
-import { eq, desc, or, and, sql } from "drizzle-orm";
+import { desc, eq, or, and } from "drizzle-orm";
 import {
   CursorApiError,
   formatRunStatus,
   truncateForImessage,
 } from "@altered/cursor-bridge";
-import {
-  cursorJobs,
-  dailyMetrics,
-  leads,
-  memories,
-  settings,
-  threads,
-} from "@altered/db";
+import { cursorAgents, cursorJobs, dailyMetrics, leads, memories, threads } from "@altered/db";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { OperatorContext } from "./operator-context";
 import { depositLabel, resolveDepositAmountCents } from "./offer";
+import {
+  findActiveAgentForWorkstream,
+  getSoftDefaultAgentId,
+  registerCursorAgent,
+  resolveAgentId,
+  resolveOperatingAgentId,
+  setSoftDefaultAgentId,
+  slugifyWorkstream,
+  touchCursorAgentRun,
+} from "./agents";
+import { listDevTasks, upsertDevTask } from "./tasks";
 
 function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -39,20 +44,6 @@ async function bumpMetric(
         updatedAt: new Date(),
       },
     });
-}
-
-async function resolveOperatingAgentId(ctx: OperatorContext, phone: string) {
-  if (ctx.db) {
-    const row = await ctx.db.query.settings.findFirst({
-      where: eq(settings.key, "operating_agent_id"),
-    });
-    if (row?.value) return row.value;
-  }
-  const fromRedis = await ctx.redis?.get<string>("settings:operating_agent_id");
-  if (fromRedis) return fromRedis;
-  const threadBind = await ctx.redis?.get<string>(`thread:${phone}:agentId`);
-  if (threadBind) return threadBind;
-  return ctx.env.CURSOR_OPERATING_AGENT_ID;
 }
 
 async function scheduleRunPoll(
@@ -90,36 +81,173 @@ export type SessionRefs = {
   threadDbId?: string;
 };
 
+async function bindThreadAgent(
+  ctx: OperatorContext,
+  phone: string,
+  threadDbId: string | undefined,
+  agentId: string,
+) {
+  await ctx.redis?.set(`thread:${phone}:agentId`, agentId);
+  if (ctx.db && threadDbId) {
+    await ctx.db
+      .update(threads)
+      .set({ cursorAgentId: agentId, updatedAt: new Date() })
+      .where(eq(threads.id, threadDbId));
+  }
+}
+
 export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) {
   return {
     get_cursor_status: tool({
       description:
-        "Get status of the operating Cursor cloud agent (latest run, PR links).",
-      inputSchema: z.object({}),
-      execute: async () => {
+        "Get status of a Cursor cloud agent. Pass agentId, or omit to use the soft-default / workstream agent.",
+      inputSchema: z.object({
+        agentId: z.string().optional(),
+        workstream: z.string().optional(),
+      }),
+      execute: async ({ agentId, workstream }) => {
         if (!ctx.cursor) return { error: "CURSOR_API_KEY missing" };
-        const agentId = await resolveOperatingAgentId(ctx, session.phone);
-        if (!agentId) return { error: "No operating agent linked" };
-        const agent = await ctx.cursor.getAgent(agentId);
+        const resolved = await resolveAgentId(ctx, {
+          phone: session.phone,
+          agentId,
+          workstream: workstream ? slugifyWorkstream(workstream) : undefined,
+        });
+        if (!resolved.agentId) {
+          return {
+            error: "No agent linked. Spawn one or pass agentId/workstream.",
+            agents: ctx.db
+              ? await ctx.db
+                  .select()
+                  .from(cursorAgents)
+                  .where(eq(cursorAgents.status, "active"))
+                  .orderBy(desc(cursorAgents.updatedAt))
+                  .limit(5)
+              : [],
+          };
+        }
+        const agent = await ctx.cursor.getAgent(resolved.agentId);
         if (!agent.latestRunId) {
           return {
             agentId: agent.id,
             name: agent.name,
             status: agent.status,
             url: agent.url,
+            source: resolved.source,
             latestRun: null,
           };
         }
-        const run = await ctx.cursor.getRun(agentId, agent.latestRunId);
+        const run = await ctx.cursor.getRun(resolved.agentId, agent.latestRunId);
         return {
           agentId: agent.id,
           name: agent.name,
           url: agent.url,
+          source: resolved.source,
           latestRun: {
             id: run.id,
             status: run.status,
             summary: formatRunStatus(run),
           },
+        };
+      },
+    }),
+
+    list_cursor_agents: tool({
+      description:
+        "List known Cursor cloud agents from the DB registry (dynamic IDs by workstream).",
+      inputSchema: z.object({
+        includeArchived: z.boolean().optional().default(false),
+        limit: z.number().int().min(1).max(50).optional().default(20),
+      }),
+      execute: async ({ includeArchived, limit }) => {
+        if (!ctx.db) return { items: [], note: "DATABASE_URL missing" };
+        const rows = await ctx.db
+          .select()
+          .from(cursorAgents)
+          .orderBy(desc(cursorAgents.updatedAt))
+          .limit(limit);
+        const items = rows
+          .filter((r) => includeArchived || r.status === "active")
+          .map((r) => ({
+            agentId: r.agentId,
+            name: r.name,
+            workstream: r.workstream,
+            status: r.status,
+            url: r.url,
+            lastRunId: r.lastRunId,
+            updatedAt: r.updatedAt.toISOString(),
+          }));
+        const softDefault = await getSoftDefaultAgentId(ctx);
+        return { softDefault: softDefault ?? null, items };
+      },
+    }),
+
+    list_dev_tasks: tool({
+      description:
+        "List development tasks stored in the DB (survives chat restarts).",
+      inputSchema: z.object({
+        status: z
+          .enum(["open", "in_progress", "blocked", "done", "cancelled", "active"])
+          .optional()
+          .default("active"),
+        workstream: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional().default(20),
+      }),
+      execute: async ({ status, workstream, limit }) => {
+        const items = await listDevTasks(ctx, {
+          status,
+          workstream: workstream ? slugifyWorkstream(workstream) : undefined,
+          limit,
+        });
+        return {
+          items: items.map((t) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            status: t.status,
+            workstream: t.workstream,
+            agentId: t.agentId,
+            priority: t.priority,
+            notes: t.notes,
+            updatedAt: t.updatedAt.toISOString(),
+          })),
+        };
+      },
+    }),
+
+    upsert_dev_task: tool({
+      description:
+        "Create or update a development task in the DB. Use for open loops / multi-step workstreams.",
+      inputSchema: z.object({
+        id: z.string().uuid().optional(),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        status: z
+          .enum(["open", "in_progress", "blocked", "done", "cancelled"])
+          .optional(),
+        workstream: z.string().optional().default("general"),
+        agentId: z.string().optional(),
+        priority: z.number().int().optional(),
+        notes: z.string().optional(),
+      }),
+      execute: async (input) => {
+        if (!ctx.db) return { error: "DATABASE_URL missing" };
+        const workstream = slugifyWorkstream(input.workstream ?? "general");
+        const row = await upsertDevTask(ctx, {
+          ...input,
+          workstream,
+          source: "imessage",
+        });
+        return {
+          ok: true,
+          task: row
+            ? {
+                id: row.id,
+                title: row.title,
+                status: row.status,
+                workstream: row.workstream,
+                agentId: row.agentId,
+              }
+            : null,
         };
       },
     }),
@@ -145,25 +273,162 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     prompt_cursor: tool({
       description:
-        "Send a follow-up task to the operating Cursor cloud agent (resumes the durable agent thread). Use for build/ship/ops work in the repo.",
+        "Send a follow-up task to a Cursor cloud agent. Groups related work into one agent chat via workstream. Auto-spawns a new agent when none exists for that workstream. Persist a DB task when trackTask is true (default).",
       inputSchema: z.object({
         task: z.string().describe("Clear instruction for the Cursor agent"),
         mode: z.enum(["agent", "plan"]).optional().default("agent"),
+        workstream: z
+          .string()
+          .optional()
+          .describe(
+            "Workstream slug/name. Related tasks should share one workstream → one agent chat.",
+          ),
+        agentId: z
+          .string()
+          .optional()
+          .describe("Force a specific bc-... agent id"),
+        trackTask: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("Upsert an in_progress dev_task in the DB"),
+        taskTitle: z
+          .string()
+          .optional()
+          .describe("Short title for the DB task (defaults to truncated task)"),
       }),
-      execute: async ({ task, mode }) => {
+      execute: async ({
+        task,
+        mode,
+        workstream: rawWorkstream,
+        agentId: explicitAgentId,
+        trackTask,
+        taskTitle,
+      }) => {
         if (!ctx.cursor) return { error: "CURSOR_API_KEY missing" };
-        const agentId = await resolveOperatingAgentId(ctx, session.phone);
+
+        const workstream = slugifyWorkstream(rawWorkstream ?? "general");
+        const workstreamExplicit = Boolean(rawWorkstream?.trim());
+        let resolved = await resolveAgentId(ctx, {
+          phone: session.phone,
+          agentId: explicitAgentId,
+          workstream: workstreamExplicit ? workstream : undefined,
+        });
+
+        // Prefer an active agent already bound to this workstream.
+        // If Riley named a distinct workstream and soft-default belongs elsewhere, spawn new.
+        if (!explicitAgentId) {
+          const workstreamAgent = await findActiveAgentForWorkstream(ctx, workstream);
+          if (workstreamAgent?.agentId) {
+            resolved = {
+              agentId: workstreamAgent.agentId,
+              source: "workstream",
+              workstream,
+            };
+          } else if (
+            workstreamExplicit &&
+            workstream !== "general" &&
+            resolved.source === "soft_default" &&
+            resolved.agentId &&
+            ctx.db
+          ) {
+            const softRow = await ctx.db.query.cursorAgents.findFirst({
+              where: eq(cursorAgents.agentId, resolved.agentId),
+            });
+            if (softRow && softRow.workstream !== workstream) {
+              resolved = { agentId: undefined, source: "none", workstream };
+            }
+          }
+        }
+
+        let agentId = resolved.agentId;
+        let spawned = false;
+
         if (!agentId) {
+          const created = await ctx.cursor.createAgent({
+            prompt: [
+              "[via iMessage operator bridge]",
+              `Workstream: ${workstream}`,
+              "Repo: altered-generated — ALTERED early-access deposit engine.",
+              "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
+              "",
+              task,
+            ].join("\n"),
+            repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
+            startingRef: ctx.env.CURSOR_DEFAULT_REF,
+            name: `ws:${workstream} — ${task.slice(0, 48)}`,
+            autoCreatePR: true,
+          });
+          agentId = created.agent.id;
+          spawned = true;
+          await registerCursorAgent(ctx, {
+            agentId,
+            name: created.agent.name,
+            workstream,
+            url: created.agent.url,
+            lastRunId: created.run.id,
+          });
+          await setSoftDefaultAgentId(ctx, agentId);
+          await bindThreadAgent(ctx, session.phone, session.threadDbId, agentId);
+
+          let taskId: string | undefined;
+          if (trackTask && ctx.db) {
+            const row = await upsertDevTask(ctx, {
+              title: taskTitle ?? truncateForImessage(task, 80),
+              description: task,
+              status: "in_progress",
+              workstream,
+              agentId,
+              source: "imessage",
+            });
+            taskId = row?.id;
+          }
+
+          await bumpMetric(ctx, "cursorRuns");
+          let jobId = "ephemeral";
+          if (ctx.db) {
+            const [job] = await ctx.db
+              .insert(cursorJobs)
+              .values({
+                threadId: session.threadDbId,
+                agentId,
+                runId: created.run.id,
+                prompt: task,
+                status: "running",
+                notifyPhone: session.phone,
+                meta: { mode, workstream, spawned: true },
+              })
+              .returning();
+            jobId = job?.id ?? jobId;
+            if (job) {
+              await scheduleRunPoll(ctx, {
+                jobId: job.id,
+                agentId,
+                runId: created.run.id,
+                notifyPhone: session.phone,
+              });
+            }
+          }
           return {
-            error:
-              "No operating agent. Set CURSOR_OPERATING_AGENT_ID or call set_operating_agent.",
+            ok: true,
+            spawned: true,
+            agentId,
+            runId: created.run.id,
+            jobId,
+            workstream,
+            taskId,
+            url: created.agent.url,
+            note: "New agent chat started for this workstream. I'll text when the run finishes.",
           };
         }
+
         const enriched = [
           "[via iMessage operator bridge — AI tools]",
           `From: ${session.phone}`,
+          `Workstream: ${workstream}`,
           "Goal: early-access reservation deposits ($99–$249 band) for ALTERED.",
-          "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories.",
+          "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories + DB tasks.",
+          "Git: feature branch → commit/push → PR → merge when Riley says complete/merged.",
           "",
           task,
         ].join("\n");
@@ -174,6 +439,23 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             enriched,
             mode === "plan" ? "plan" : "agent",
           );
+          await touchCursorAgentRun(ctx, agentId, run.id);
+          await setSoftDefaultAgentId(ctx, agentId);
+          await bindThreadAgent(ctx, session.phone, session.threadDbId, agentId);
+
+          let taskId: string | undefined;
+          if (trackTask && ctx.db) {
+            const row = await upsertDevTask(ctx, {
+              title: taskTitle ?? truncateForImessage(task, 80),
+              description: task,
+              status: "in_progress",
+              workstream,
+              agentId,
+              source: "imessage",
+            });
+            taskId = row?.id;
+          }
+
           let jobId = "ephemeral";
           if (ctx.db) {
             const [job] = await ctx.db
@@ -185,7 +467,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
                 prompt: enriched,
                 status: "running",
                 notifyPhone: session.phone,
-                meta: { mode },
+                meta: { mode, workstream, spawned },
               })
               .returning();
             jobId = job?.id ?? jobId;
@@ -199,12 +481,15 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             }
           }
           await bumpMetric(ctx, "cursorRuns");
-          await ctx.redis?.set(`thread:${session.phone}:agentId`, agentId);
           return {
             ok: true,
+            spawned: false,
             agentId,
             runId: run.id,
             jobId,
+            workstream,
+            taskId,
+            source: resolved.source,
             note: "I'll text when the run finishes.",
           };
         } catch (err) {
@@ -218,7 +503,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
                   prompt: enriched,
                   status: "busy_retry",
                   notifyPhone: session.phone,
-                  meta: { mode },
+                  meta: { mode, workstream },
                 })
                 .returning();
               if (job && ctx.qstash && ctx.env.APP_BASE_URL) {
@@ -234,6 +519,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
                 busy: true,
                 agentId,
                 jobId: job?.id,
+                workstream,
                 note: "Agent busy — queued retry.",
               };
             }
@@ -246,44 +532,61 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     spawn_cursor_agent: tool({
       description:
-        "Create a NEW Cursor cloud agent on this repo. Prefer prompt_cursor unless a separate workstream is needed.",
+        "Create a NEW Cursor cloud agent for a workstream. Prefer prompt_cursor (auto-spawns) unless you explicitly want a fresh chat.",
       inputSchema: z.object({
         task: z.string(),
         name: z.string().optional(),
-        bindAsOperating: z
+        workstream: z.string().optional().default("general"),
+        bindAsDefault: z
           .boolean()
           .optional()
-          .default(false)
-          .describe("If true, make this the new default operating agent"),
+          .default(true)
+          .describe("If true, pin as soft-default active agent"),
+        trackTask: z.boolean().optional().default(true),
       }),
-      execute: async ({ task, name, bindAsOperating }) => {
+      execute: async ({ task, name, workstream: rawWorkstream, bindAsDefault, trackTask }) => {
         if (!ctx.cursor) return { error: "CURSOR_API_KEY missing" };
+        const workstream = slugifyWorkstream(rawWorkstream ?? "general");
         const created = await ctx.cursor.createAgent({
           prompt: [
             "[via iMessage operator bridge]",
+            `Workstream: ${workstream}`,
             "Repo: altered-generated — ALTERED early-access deposit engine.",
+            "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
             "",
             task,
           ].join("\n"),
           repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
           startingRef: ctx.env.CURSOR_DEFAULT_REF,
-          name: name ?? `iMessage: ${task.slice(0, 60)}`,
+          name: name ?? `ws:${workstream} — ${task.slice(0, 48)}`,
           autoCreatePR: true,
         });
 
-        await ctx.redis?.set(
-          `thread:${session.phone}:agentId`,
-          created.agent.id,
-        );
-        if (ctx.db && session.threadDbId) {
-          await ctx.db
-            .update(threads)
-            .set({ cursorAgentId: created.agent.id, updatedAt: new Date() })
-            .where(eq(threads.id, session.threadDbId));
+        await registerCursorAgent(ctx, {
+          agentId: created.agent.id,
+          name: created.agent.name,
+          workstream,
+          url: created.agent.url,
+          lastRunId: created.run.id,
+        });
+        await bindThreadAgent(ctx, session.phone, session.threadDbId, created.agent.id);
+        if (bindAsDefault) {
+          await setSoftDefaultAgentId(ctx, created.agent.id);
         }
-        if (bindAsOperating) {
-          await persistSetting(ctx, "operating_agent_id", created.agent.id);
+
+        let taskId: string | undefined;
+        if (trackTask && ctx.db) {
+          const row = await upsertDevTask(ctx, {
+            title: truncateForImessage(task, 80),
+            description: task,
+            status: "in_progress",
+            workstream,
+            agentId: created.agent.id,
+            source: "imessage",
+          });
+          taskId = row?.id;
         }
+
         if (ctx.db) {
           const [job] = await ctx.db
             .insert(cursorJobs)
@@ -294,6 +597,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
               prompt: task,
               status: "running",
               notifyPhone: session.phone,
+              meta: { workstream, spawned: true },
             })
             .returning();
           if (job) {
@@ -311,27 +615,26 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           agentId: created.agent.id,
           url: created.agent.url,
           runId: created.run.id,
-          boundAsOperating: bindAsOperating,
+          workstream,
+          taskId,
+          boundAsDefault: bindAsDefault,
         };
       },
     }),
 
     set_operating_agent: tool({
       description:
-        "Bind a durable Cursor agent id (bc-...) as the default operating agent for future prompts. Persists in DB + Redis.",
+        "Pin a Cursor agent id (bc-...) as the soft-default for future prompts when no workstream match exists. Persists in DB + Redis. Prefer workstreams over a permanent singleton.",
       inputSchema: z.object({
         agentId: z.string().regex(/^bc-[a-z0-9-]+$/i),
+        workstream: z.string().optional(),
       }),
-      execute: async ({ agentId }) => {
-        await persistSetting(ctx, "operating_agent_id", agentId);
-        await ctx.redis?.set(`thread:${session.phone}:agentId`, agentId);
-        if (ctx.db && session.threadDbId) {
-          await ctx.db
-            .update(threads)
-            .set({ cursorAgentId: agentId, updatedAt: new Date() })
-            .where(eq(threads.id, session.threadDbId));
-        }
-        return { ok: true, agentId };
+      execute: async ({ agentId, workstream: rawWorkstream }) => {
+        const workstream = slugifyWorkstream(rawWorkstream ?? "general");
+        await registerCursorAgent(ctx, { agentId, workstream });
+        await setSoftDefaultAgentId(ctx, agentId);
+        await bindThreadAgent(ctx, session.phone, session.threadDbId, agentId);
+        return { ok: true, agentId, workstream };
       },
     }),
 
@@ -443,13 +746,14 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           .default("global"),
       }),
       execute: async ({ content, key, scope }) => {
+        const soft = await getSoftDefaultAgentId(ctx);
         const scopeId =
           scope === "operator"
             ? session.phone
             : scope === "thread"
               ? session.threadDbId
               : scope === "agent"
-                ? await resolveOperatingAgentId(ctx, session.phone)
+                ? soft
                 : null;
 
         if (ctx.db) {
@@ -550,19 +854,6 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
   };
 }
 
-async function persistSetting(ctx: OperatorContext, key: string, value: string) {
-  if (ctx.db) {
-    await ctx.db
-      .insert(settings)
-      .values({ key, value, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: { value, updatedAt: new Date() },
-      });
-  }
-  await ctx.redis?.set(`settings:${key}`, value);
-}
-
 async function mirrorMemoryRedis(
   ctx: OperatorContext,
   key: string,
@@ -576,10 +867,34 @@ export async function loadMemoryPreamble(
   phone: string,
 ): Promise<string> {
   const parts: string[] = [];
-  const agentId = await resolveOperatingAgentId(ctx, phone);
-  if (agentId) parts.push(`Operating Cursor agent: ${agentId}`);
+  const soft = await getSoftDefaultAgentId(ctx);
+  if (soft) parts.push(`Soft-default Cursor agent: ${soft}`);
 
   if (ctx.db) {
+    const activeAgents = await ctx.db
+      .select()
+      .from(cursorAgents)
+      .where(eq(cursorAgents.status, "active"))
+      .orderBy(desc(cursorAgents.updatedAt))
+      .limit(5);
+    if (activeAgents.length) {
+      parts.push(
+        `Active agents: ${activeAgents
+          .map((a) => `${a.workstream}=${a.agentId}`)
+          .join(", ")}`,
+      );
+    }
+
+    const openTasks = await listDevTasks(ctx, { status: "active", limit: 6 });
+    if (openTasks.length) {
+      parts.push("Open dev tasks:");
+      for (const t of openTasks) {
+        parts.push(
+          `- [${t.status}] ${t.workstream}: ${truncateForImessage(t.title, 100)}${t.agentId ? ` (${t.agentId})` : ""}`,
+        );
+      }
+    }
+
     const rows = await ctx.db
       .select()
       .from(memories)
@@ -616,4 +931,4 @@ export async function loadMemoryPreamble(
     : "Durable memory: (empty)";
 }
 
-export { resolveOperatingAgentId, bumpMetric };
+export { bumpMetric, resolveOperatingAgentId, resolveAgentId };

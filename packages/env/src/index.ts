@@ -23,7 +23,10 @@ export const serverEnvSchema = z.object({
   SENDBLUE_WEBHOOK_SECRET: z.string().optional(),
 
   CURSOR_API_KEY: z.string().optional(),
-  /** Durable Cursor agent iMessage resumes by default */
+  /**
+   * Optional bootstrap only. Runtime uses dynamic agent IDs in DB
+   * (`cursor_agents` + soft-default `settings.active_agent_id`) by workstream.
+   */
   CURSOR_OPERATING_AGENT_ID: z.string().optional(),
   CURSOR_DEFAULT_REPO_URL: z
     .string()
@@ -90,7 +93,6 @@ export function missingCriticalEnv(env: ServerEnv = getServerEnv()): string[] {
   if (!env.SENDBLUE_API_SECRET) missing.push("SENDBLUE_API_SECRET");
   if (!env.SENDBLUE_FROM_NUMBER) missing.push("SENDBLUE_FROM_NUMBER");
   if (!env.CURSOR_API_KEY) missing.push("CURSOR_API_KEY");
-  if (!env.CURSOR_OPERATING_AGENT_ID) missing.push("CURSOR_OPERATING_AGENT_ID");
   if (!env.OPENROUTER_API_KEY) missing.push("OPENROUTER_API_KEY");
   if (!env.REDIS_URL) missing.push("REDIS_URL");
   if (!env.APP_BASE_URL) missing.push("APP_BASE_URL");

@@ -9,7 +9,7 @@
     "./offer": "./src/offer.ts"
   },
   "scripts": {
-    "test": "tsx --test src/phone.test.ts",
+    "test": "tsx --test src/phone.test.ts src/agents.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
   },
