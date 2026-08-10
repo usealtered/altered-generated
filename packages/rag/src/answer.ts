@@ -29,7 +29,7 @@ export async function answerWithRag(opts: {
   chunks: KnowledgeChunk[];
   modelId?: string;
   hasLlm: boolean;
-  openAiApiKey?: string;
+  openRouterApiKey?: string;
 }): Promise<RagAnswer> {
   const hits = retrieveLocal(opts.query, opts.chunks, 5);
   const citations = hits.map((h) => ({
@@ -46,7 +46,7 @@ export async function answerWithRag(opts: {
     };
   }
 
-  if (!opts.hasLlm || !opts.openAiApiKey) {
+  if (!opts.hasLlm || !opts.openRouterApiKey) {
     return {
       answer: formatLocalAnswer(opts.query, hits),
       citations,
@@ -58,13 +58,16 @@ export async function answerWithRag(opts: {
       import("ai"),
       import("@ai-sdk/openai"),
     ]);
-    const openai = createOpenAI({ apiKey: opts.openAiApiKey });
-    const modelName = (opts.modelId ?? "gpt-4.1-mini").replace(/^openai\//, "");
+    const openrouter = createOpenAI({
+      apiKey: opts.openRouterApiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+    });
+    const modelName = opts.modelId ?? "anthropic/claude-sonnet-5";
     const context = hits
       .map((h, i) => `[${i + 1}] ${h.title} (${h.path})\n${h.content}`)
       .join("\n\n---\n\n");
     const { text } = await generateText({
-      model: openai(modelName),
+      model: openrouter.chat(modelName),
       system:
         "You are the ALTERED operator copilot. Answer briefly for iMessage. Use only provided context. Prefer concrete next actions for early-access deposit revenue.",
       prompt: `Context:\n${context}\n\nQuestion: ${opts.query}`,

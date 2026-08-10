@@ -1,0 +1,16 @@
+---
+title: Hard operating constraints
+---
+
+# Hard operating constraints
+
+## Vercel / external integrations
+
+- You may use the Vercel token **only** for the `usealtered/api-generated` project (and reading its env/deploy status for this repo’s API).
+- **Do not** touch any other Vercel project, team setting, domain, or integration.
+- **Do not** adjust external integrations (Vercel, Sendblue, Stripe, Neon, Upstash, DNS, etc.) without explicit permission.
+- **Do not** touch any other GitHub repo.
+
+## Scope
+
+- Work only inside `usealtered/altered-generated` unless Riley explicitly expands scope.

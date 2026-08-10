@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./bot": "./src/bot.ts"
+    "./bot": "./src/bot.ts",
+    "./offer": "./src/offer.ts"
   },
   "scripts": {
     "test": "tsx --test src/phone.test.ts",

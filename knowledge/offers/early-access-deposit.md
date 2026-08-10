@@ -6,12 +6,8 @@ title: Early access deposit offer
 
 ## Status
 
-Offer amount **pending** — band **$99–$249**. Placeholder env default `$149` (`EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS=14900`) until Riley locks it.
+Offer amount **pending** — band **$99–$249**. Placeholder default **$149** until Riley locks it.
 
 ## Checkout
 
-Static Stripe Payment Link / Checkout URL via `EARLY_ACCESS_CHECKOUT_URL` (no Stripe SDK required yet).
-
-## Promise (draft)
-
-Pay a reservation deposit now to lock founding cohort pricing and priority onboarding for ALTERED.
+Static Stripe Payment Link via `PRIMARY_CHECKOUT_URL` (no Stripe SDK required yet).

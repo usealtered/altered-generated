@@ -11,6 +11,12 @@ import { getKnowledgeRoot } from "@altered/knowledge";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
 import { desc, eq, sql } from "drizzle-orm";
 
+// Deposit amount resolved from knowledge (not env)
+async function depositCents() {
+  const { resolveDepositAmountCents } = await import("@altered/chat/offer");
+  return resolveDepositAmountCents(knowledgeRoot());
+}
+
 const os = implement(appContract);
 
 function knowledgeRoot() {
@@ -38,6 +44,7 @@ export const router = os.router({
       throw new Error("DATABASE_URL required");
     }
     const db = createDb(env.DATABASE_URL);
+    const amountCents = await depositCents();
     const [lead] = await db
       .insert(leads)
       .values({
@@ -49,7 +56,7 @@ export const router = os.router({
         notes: input.notes,
         utm: input.utm,
         status: input.wantDepositCheckout ? "qualified" : "new",
-        depositAmountCents: env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
+        depositAmountCents: amountCents,
         depositCurrency: env.EARLY_ACCESS_DEPOSIT_CURRENCY,
       })
       .returning();
@@ -68,7 +75,7 @@ export const router = os.router({
     return {
       id: lead!.id,
       status: lead!.status,
-      checkoutUrl: env.EARLY_ACCESS_CHECKOUT_URL,
+      checkoutUrl: env.PRIMARY_CHECKOUT_URL,
     };
   }),
 
@@ -130,9 +137,9 @@ export const router = os.router({
     return answerWithRag({
       query: input.query,
       chunks,
-      modelId: env.AI_MODEL,
-      hasLlm: Boolean(env.OPENAI_API_KEY),
-      openAiApiKey: env.OPENAI_API_KEY,
+      modelId: env.CHAT_AGENT_MODEL_ID,
+      hasLlm: Boolean(env.OPENROUTER_API_KEY),
+      openRouterApiKey: env.OPENROUTER_API_KEY,
     });
   }),
 

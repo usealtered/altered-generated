@@ -12,6 +12,7 @@ export const serverEnvSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
   QSTASH_TOKEN: z.string().optional(),
+  QSTASH_URL: optionalUrl,
   QSTASH_CURRENT_SIGNING_KEY: z.string().optional(),
   QSTASH_NEXT_SIGNING_KEY: z.string().optional(),
 
@@ -32,28 +33,18 @@ export const serverEnvSchema = z.object({
   /** Comma-separated E.164 phones allowed to drive the operator bridge */
   OPERATOR_PHONE_ALLOWLIST: z.string().optional(),
 
-  /** Required for AI SDK tool-calling operator */
-  OPENAI_API_KEY: z.string().optional(),
-  AI_MODEL: z.string().default("gpt-4.1-mini"),
+  /** OpenRouter for AI SDK tool-calling operator */
+  OPENROUTER_API_KEY: z.string().optional(),
+  CHAT_AGENT_MODEL_ID: z.string().default("anthropic/claude-sonnet-5"),
 
   /** Public API origin, e.g. https://generated.api.usealtered.com */
   APP_BASE_URL: z.string().url().optional(),
   /** Public site origin, e.g. https://generated.usealtered.com */
   SITE_BASE_URL: z.string().url().optional(),
 
-  /**
-   * Deposit amount in cents. Offer band is $99–$249 until locked.
-   * Default $149 mid-band placeholder.
-   */
-  EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS: z.coerce
-    .number()
-    .int()
-    .min(9900)
-    .max(24900)
-    .default(14900),
   EARLY_ACCESS_DEPOSIT_CURRENCY: z.string().default("usd"),
-  /** Static Stripe Payment Link / Checkout URL (no Stripe SDK required) */
-  EARLY_ACCESS_CHECKOUT_URL: z.string().url().optional(),
+  /** Static Stripe Payment Link / Checkout URL */
+  PRIMARY_CHECKOUT_URL: z.string().url().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -100,12 +91,8 @@ export function missingCriticalEnv(env: ServerEnv = getServerEnv()): string[] {
   if (!env.SENDBLUE_FROM_NUMBER) missing.push("SENDBLUE_FROM_NUMBER");
   if (!env.CURSOR_API_KEY) missing.push("CURSOR_API_KEY");
   if (!env.CURSOR_OPERATING_AGENT_ID) missing.push("CURSOR_OPERATING_AGENT_ID");
-  if (!env.OPENAI_API_KEY) missing.push("OPENAI_API_KEY");
+  if (!env.OPENROUTER_API_KEY) missing.push("OPENROUTER_API_KEY");
   if (!env.REDIS_URL) missing.push("REDIS_URL");
   if (!env.APP_BASE_URL) missing.push("APP_BASE_URL");
   return missing;
-}
-
-export function depositDollarsLabel(cents: number): string {
-  return `$${(cents / 100).toFixed(0)}`;
 }

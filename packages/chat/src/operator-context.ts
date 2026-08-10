@@ -39,7 +39,12 @@ export function createOperatorContext(
     ctx.cursor = overrides.cursor ?? createCursorClient(env.CURSOR_API_KEY);
   }
   if (env.QSTASH_TOKEN) {
-    ctx.qstash = overrides.qstash ?? new QStashClient({ token: env.QSTASH_TOKEN });
+    ctx.qstash =
+      overrides.qstash ??
+      new QStashClient({
+        token: env.QSTASH_TOKEN,
+        ...(env.QSTASH_URL ? { baseUrl: env.QSTASH_URL } : {}),
+      });
   }
   return ctx;
 }

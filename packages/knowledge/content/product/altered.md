@@ -20,7 +20,7 @@ Turn fragmented company knowledge into an operable system humans and agents can 
 
 Generate **$250+/day** via **early-access program reservation deposits**.
 
-Default deposit: **$250** (configurable via `EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS`).
+Deposit band: **$99–$249** (placeholder **$149** in knowledge until locked). Checkout via `PRIMARY_CHECKOUT_URL`.
 
 ## Offer shape
 

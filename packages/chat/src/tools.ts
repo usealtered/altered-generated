@@ -16,6 +16,7 @@ import {
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
 import { z } from "zod";
 import type { OperatorContext } from "./operator-context";
+import { depositLabel, resolveDepositAmountCents } from "./offer";
 
 function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -134,9 +135,9 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         const result = await answerWithRag({
           query,
           chunks,
-          modelId: ctx.env.AI_MODEL,
-          hasLlm: Boolean(ctx.env.OPENAI_API_KEY),
-          openAiApiKey: ctx.env.OPENAI_API_KEY,
+          modelId: ctx.env.CHAT_AGENT_MODEL_ID,
+          hasLlm: Boolean(ctx.env.OPENROUTER_API_KEY),
+          openRouterApiKey: ctx.env.OPENROUTER_API_KEY,
         });
         return result;
       },
@@ -348,6 +349,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         if (!input.email && !input.phone) {
           return { error: "Need email or phone" };
         }
+        const amountCents = await resolveDepositAmountCents(ctx.knowledgeRoot);
         const [lead] = await ctx.db
           .insert(leads)
           .values({
@@ -358,7 +360,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             notes: input.notes,
             source: "imessage",
             status: "new",
-            depositAmountCents: ctx.env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
+            depositAmountCents: amountCents,
             depositCurrency: ctx.env.EARLY_ACCESS_DEPOSIT_CURRENCY,
           })
           .returning();
@@ -366,7 +368,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         return {
           ok: true,
           leadId: lead?.id,
-          checkoutUrl: ctx.env.EARLY_ACCESS_CHECKOUT_URL,
+          checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL,
         };
       },
     }),
@@ -377,12 +379,13 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
       execute: async () => {
         const day = todayKey();
         const goalCents = 25000;
-        const depositLabel = `$${(ctx.env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS / 100).toFixed(0)}`;
+        const amountCents = await resolveDepositAmountCents(ctx.knowledgeRoot);
+        const amountLabel = depositLabel(amountCents);
         if (!ctx.db) {
           return {
             day,
             offline: true,
-            depositAmount: depositLabel,
+            depositAmount: amountLabel,
             goalCents,
           };
         }
@@ -397,29 +400,30 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           depositsCents: cents,
           progressPct: Math.min(100, Math.round((cents / goalCents) * 100)),
           goalCents,
-          depositAmount: depositLabel,
+          depositAmount: amountLabel,
           imessageInbound: row?.imessageInbound ?? 0,
           cursorRuns: row?.cursorRuns ?? 0,
-          checkoutUrl: ctx.env.EARLY_ACCESS_CHECKOUT_URL ?? null,
+          checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL ?? null,
         };
       },
     }),
 
     get_checkout_link: tool({
       description:
-        "Return the early-access deposit checkout URL (static Stripe link from env).",
+        "Return the early-access deposit checkout URL (PRIMARY_CHECKOUT_URL).",
       inputSchema: z.object({}),
       execute: async () => {
-        if (!ctx.env.EARLY_ACCESS_CHECKOUT_URL) {
+        const amountCents = await resolveDepositAmountCents(ctx.knowledgeRoot);
+        if (!ctx.env.PRIMARY_CHECKOUT_URL) {
           return {
             error:
-              "EARLY_ACCESS_CHECKOUT_URL not set yet. Add a Stripe Payment Link when ready.",
-            amountCents: ctx.env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
+              "PRIMARY_CHECKOUT_URL not set yet. Add a Stripe Payment Link when ready.",
+            amountCents,
           };
         }
         return {
-          url: ctx.env.EARLY_ACCESS_CHECKOUT_URL,
-          amountCents: ctx.env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
+          url: ctx.env.PRIMARY_CHECKOUT_URL,
+          amountCents,
         };
       },
     }),

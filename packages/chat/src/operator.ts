@@ -1,4 +1,3 @@
-import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
 import { eq } from "drizzle-orm";
 import {
@@ -7,6 +6,7 @@ import {
 } from "@altered/cursor-bridge";
 import { cursorJobs, messages, settings, threads } from "@altered/db";
 import { isOperatorPhone, normalizePhone, parseAllowlist } from "@altered/env";
+import { createOpenRouter, chatAgentModelId } from "./model";
 import {
   createOperatorContext,
   type OperatorContext,
@@ -93,7 +93,7 @@ Never invent slash commands. Use tools when you need status, knowledge, Cursor w
 Default: if Riley asks you to build/fix/ship/change the repo, call prompt_cursor.
 If he asks a factual question about the offer/ops/product, search_knowledge first.
 Persist important decisions with save_memory (keys like offer.deposit, ops.decision.*).
-Do not claim Stripe Checkout API is wired — use get_checkout_link for the static payment link when set.`;
+Do not claim Stripe Checkout API is wired — use get_checkout_link for PRIMARY_CHECKOUT_URL when set.`;
 
 export async function handleOperatorMessage(input: {
   ctx?: OperatorContext;
@@ -113,9 +113,9 @@ export async function handleOperatorMessage(input: {
   await saveMessage(ctx, thread?.id, "inbound", input.text);
   await bumpMetric(ctx, "imessageInbound");
 
-  if (!ctx.env.OPENAI_API_KEY) {
+  if (!ctx.env.OPENROUTER_API_KEY) {
     const reply =
-      "OPENAI_API_KEY missing — AI tool calling offline. Add it on Vercel and retext.";
+      "OPENROUTER_API_KEY missing — AI tool calling offline. Add it on Vercel and retext.";
     await saveMessage(ctx, thread?.id, "outbound", reply);
     return reply;
   }
@@ -128,12 +128,12 @@ export async function handleOperatorMessage(input: {
     threadDbId: thread?.id,
   });
 
-  const openai = createOpenAI({ apiKey: ctx.env.OPENAI_API_KEY });
-  const modelName = ctx.env.AI_MODEL.replace(/^openai\//, "");
+  const openrouter = createOpenRouter(ctx.env);
+  const modelId = chatAgentModelId(ctx.env);
 
   try {
     const result = await generateText({
-      model: openai(modelName),
+      model: openrouter.chat(modelId),
       system: [
         SYSTEM,
         `Domains: api=${ctx.env.APP_BASE_URL ?? "unset"} site=${ctx.env.SITE_BASE_URL ?? "unset"}`,

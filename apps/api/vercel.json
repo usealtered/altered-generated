@@ -1,10 +1,13 @@
 {
   "version": 2,
-  "builds": [{ "src": "src/app.ts", "use": "@vercel/node" }],
-  "routes": [{ "src": "/(.*)", "dest": "src/app.ts" }],
-  "functions": {
-    "src/app.ts": {
-      "includeFiles": "../../packages/knowledge/content/**"
+  "builds": [
+    {
+      "src": "src/app.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["../../packages/knowledge/content/**"]
+      }
     }
-  }
+  ],
+  "routes": [{ "src": "/(.*)", "dest": "src/app.ts" }]
 }
