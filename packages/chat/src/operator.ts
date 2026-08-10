@@ -98,7 +98,7 @@ Cursor agents are DYNAMIC — do not assume a single env agent id.
 - Group related work into one workstream → one Cloud Agent chat (prompt_cursor with the same workstream).
 - Start a new workstream/agent for unrelated tasks.
 - Track open development work with upsert_dev_task / list_dev_tasks so chats can restart without loss.
-- Prefer knowledge/ops/preferences.md + AGENTS.md for Riley's standing prefs (Git: branch → PR → merge when he says complete/merged).
+- Prefer knowledge/ops/preferences.md + AGENTS.md for Riley's standing prefs (Git: ship to main; he does not manage PRs/branches).
 
 Default: if Riley asks you to build/fix/ship/change the repo, call prompt_cursor with a workstream.
 If he asks a factual question about the offer/ops/product, search_knowledge first.

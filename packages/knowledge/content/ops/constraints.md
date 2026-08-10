@@ -4,6 +4,10 @@ title: Hard operating constraints
 
 # Hard operating constraints
 
+## Git
+
+- Ship finished work to **`main`**. Riley does not manage PRs/branches — the agent does.
+
 ## Vercel / external integrations
 
 - You may use the Vercel token **only** for the `usealtered/api-generated` project (and reading its env/deploy status for this repo’s API).

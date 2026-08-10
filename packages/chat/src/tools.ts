@@ -357,7 +357,8 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
             startingRef: ctx.env.CURSOR_DEFAULT_REF,
             name: `ws:${workstream} — ${task.slice(0, 48)}`,
-            autoCreatePR: true,
+            autoCreatePR: false,
+            workOnCurrentBranch: true,
           });
           agentId = created.agent.id;
           spawned = true;
@@ -428,7 +429,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           `Workstream: ${workstream}`,
           "Goal: early-access reservation deposits ($99–$249 band) for ALTERED.",
           "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories + DB tasks.",
-          "Git: feature branch → commit/push → PR → merge when Riley says complete/merged.",
+          "Git: ship to main (Riley does not manage PRs/branches). Prefer commit+push to main; if you used a branch/PR, merge it yourself when done.",
           "",
           task,
         ].join("\n");
@@ -559,7 +560,8 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
           startingRef: ctx.env.CURSOR_DEFAULT_REF,
           name: name ?? `ws:${workstream} — ${task.slice(0, 48)}`,
-          autoCreatePR: true,
+          autoCreatePR: false,
+          workOnCurrentBranch: true,
         });
 
         await registerCursorAgent(ctx, {

@@ -6,13 +6,14 @@ title: Riley operating preferences
 
 Standing prefs for Cloud Agents and the iMessage operator. Keep this file current when Riley changes process.
 
-## Git / PR handling
+## Git / shipping
 
-1. Create a feature branch for the work (`cursor/<descriptive-name>-…`).
-2. Commit with clear messages; push the branch (`git push -u origin <branch>`).
-3. Open a draft PR early; update it as you go.
-4. When Riley says **complete**, **done**, or **merged** — **merge the PR into `main`** and confirm in chat. Do not leave finished work unmerged unless he says to wait.
-5. Never commit secrets (`.env`, tokens, private keys).
+Riley does **not** want to manage PRs or branches himself.
+
+1. **Default:** commit and **push directly to `main`**. Agent owns getting work onto main.
+2. Do **not** ask Riley to open, review, or merge PRs.
+3. Feature branches / draft PRs are optional internals only — if used, the **agent merges to `main`** when the work is done (or when he says complete / done / merged). Never leave finished work unmerged for him to handle.
+4. Never commit secrets (`.env`, tokens, private keys).
 
 ## Cloud Agent chats
 
@@ -28,11 +29,12 @@ Before ending a long chat, ensure:
 
 1. Open loops are rows in `dev_tasks` (status `open` / `in_progress` / `blocked`).
 2. Decisions and prefs are in `knowledge/` (and optionally `memories`).
-3. PR state matches reality (pushed, linked, merged if requested).
+3. Code that should ship is on **`main`**.
+4. Write/update `knowledge/ops/handoff.md` for the next chat.
 
 ## Vercel
 
-- `VERCEL_TOKEN` (when present) is **only** for project `api-generated` on team scope `altered` (aka `usealtered/api-generated` in repo docs).
+- `VERCEL_TOKEN` (when present) is **only** for project `api-generated` on team scope `altered` (aka `usealtered/api-generated`).
 - Allowed: `vercel env pull`, deploy status for that project.
 - Forbidden without explicit permission: other projects, domains, team settings, integration changes.
 
@@ -40,3 +42,17 @@ Before ending a long chat, ensure:
 
 - Ask Riley in chat / iMessage for decisions — not via inventing repo files as questions.
 - Keep iMessage replies short; put durable detail in knowledge/DB.
+
+## Offer / product
+
+- Deposit band **$99–$249**; placeholder **$149** in knowledge until locked.
+- Checkout: `PRIMARY_CHECKOUT_URL` (static link; no Stripe SDK yet).
+- AI: OpenRouter via `OPENROUTER_API_KEY` + `CHAT_AGENT_MODEL_ID`.
+
+## Phones / domains
+
+- Agent line: `+13054098546`
+- Operator: `+12368370221`
+- API: `https://generated.api.usealtered.com`
+- Site: `https://generated.usealtered.com`
+- Webhook: `https://generated.api.usealtered.com/webhooks/sendblue`

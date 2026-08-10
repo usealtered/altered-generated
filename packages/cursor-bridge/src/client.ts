@@ -140,8 +140,8 @@ export class CursorClient {
               startingRef: input.startingRef ?? "main",
             },
           ],
-          autoCreatePR: input.autoCreatePR ?? true,
-          workOnCurrentBranch: input.workOnCurrentBranch ?? false,
+          autoCreatePR: input.autoCreatePR ?? false,
+          workOnCurrentBranch: input.workOnCurrentBranch ?? true,
         }),
       },
       z.object({
