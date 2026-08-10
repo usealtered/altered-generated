@@ -41,8 +41,14 @@ for (const file of files) {
   // neon http driver runs one statement; split on breakpoints / semicolons carefully
   const statements = body
     .split(/-->\s*statement-breakpoint|;/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+    .map((s) =>
+      s
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter((s) => s.length > 0);
 
   for (const statement of statements) {
     await sql.query(statement);
