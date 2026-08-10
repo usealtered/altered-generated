@@ -41,6 +41,19 @@ export const memoryScopeEnum = pgEnum("memory_scope", [
   "thread",
 ]);
 
+export const cursorAgentStatusEnum = pgEnum("cursor_agent_status", [
+  "active",
+  "archived",
+]);
+
+export const devTaskStatusEnum = pgEnum("dev_task_status", [
+  "open",
+  "in_progress",
+  "blocked",
+  "done",
+  "cancelled",
+]);
+
 export const operators = pgTable("operators", {
   id: uuid("id").defaultRandom().primaryKey(),
   phone: varchar("phone", { length: 32 }).notNull().unique(),
@@ -138,6 +151,55 @@ export const cursorJobs = pgTable(
   (t) => [
     index("cursor_jobs_agent_idx").on(t.agentId),
     index("cursor_jobs_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Dynamic Cloud Agent registry — prefer workstream binding over a single env agent id.
+ * Related tasks share one agent chat; unrelated workstreams get a new agent.
+ */
+export const cursorAgents = pgTable(
+  "cursor_agents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agentId: text("agent_id").notNull().unique(),
+    name: text("name"),
+    workstream: varchar("workstream", { length: 128 }).notNull().default("general"),
+    status: cursorAgentStatusEnum("status").notNull().default("active"),
+    url: text("url"),
+    lastRunId: text("last_run_id"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("cursor_agents_workstream_idx").on(t.workstream),
+    index("cursor_agents_status_idx").on(t.status),
+  ],
+);
+
+/** Development tasks tracked in DB so chats can restart without losing open work. */
+export const devTasks = pgTable(
+  "dev_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: devTaskStatusEnum("status").notNull().default("open"),
+    workstream: varchar("workstream", { length: 128 }).notNull().default("general"),
+    agentId: text("agent_id"),
+    priority: integer("priority").notNull().default(0),
+    notes: text("notes"),
+    source: varchar("source", { length: 64 }).notNull().default("imessage"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("dev_tasks_status_idx").on(t.status),
+    index("dev_tasks_workstream_idx").on(t.workstream),
+    index("dev_tasks_agent_idx").on(t.agentId),
   ],
 );
 

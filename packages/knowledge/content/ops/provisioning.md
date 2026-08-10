@@ -20,3 +20,5 @@ title: Provisioning checklist
 - Checkout: `PRIMARY_CHECKOUT_URL`
 - Deposit amount: knowledge/`offers/early-access-deposit.md` (placeholder $149)
 - AI: OpenRouter via `OPENROUTER_API_KEY` + `CHAT_AGENT_MODEL_ID`
+- Cursor: `CURSOR_API_KEY` required; `CURSOR_OPERATING_AGENT_ID` optional bootstrap only (dynamic agents in DB)
+- Cloud Agent secret `VERCEL_TOKEN`: pull envs for `usealtered/api-generated` only (see `AGENTS.md`)

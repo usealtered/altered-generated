@@ -14,3 +14,8 @@ title: Hard operating constraints
 ## Scope
 
 - Work only inside `usealtered/altered-generated` unless Riley explicitly expands scope.
+
+## Agents
+
+- No single fixed Cloud Agent chat ID. Use dynamic `cursor_agents` + workstreams; track work in `dev_tasks`.
+- See `knowledge/ops/preferences.md`.
