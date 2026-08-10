@@ -1,4 +1,4 @@
-import { handle } from "hono/vercel";
 import { app } from "./app";
 
-export default handle(app);
+/** Web Handler API — Vercel Node launcher with shouldAddHelpers: false */
+export default app;

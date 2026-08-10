@@ -43,7 +43,8 @@ writeFileSync(
       runtime: "nodejs22.x",
       handler: "index.js",
       launcherType: "Nodejs",
-      shouldAddHelpers: true,
+      // Web Handler API (export default app with .fetch) — not Node (req, res)
+      shouldAddHelpers: false,
       supportsResponseStreaming: true,
     },
     null,
