@@ -4,23 +4,18 @@ title: Provisioning checklist
 
 # Provisioning checklist
 
-Ship order for leads today:
+## Webhook (configure in Sendblue)
 
-1. Neon free Postgres → `DATABASE_URL` → `pnpm db:migrate`
-2. Upstash Redis → Chat SDK state + short memory
-3. Upstash QStash → Cursor poll/retry jobs
-4. Sendblue number + webhook → `https://<api>/webhooks/sendblue`
-5. Cursor API key → dashboard API keys
-6. Set `CURSOR_OPERATING_AGENT_ID` to the durable agent to resume
-7. Deploy `apps/api` + `apps/web` on Vercel
-8. Stripe (optional for same-day deposits) + webhook `/webhooks/stripe`
-9. Set `OPERATOR_PHONE_ALLOWLIST` to your E.164 phone
-10. Text the Sendblue line: `status` then `metrics`
+`https://generated.api.usealtered.com/webhooks/sendblue`
 
-## Minimum for chat bridge only
+## After env vars are on Vercel
 
-`SENDBLUE_*`, `CURSOR_API_KEY`, `CURSOR_OPERATING_AGENT_ID`, Redis, `APP_BASE_URL`
+1. Deploy `apps/api` → `generated.api.usealtered.com`
+2. Deploy `apps/web` → `generated.usealtered.com`
+3. From this agent (or CI): `pnpm db:migrate` with `DATABASE_URL`
+4. Text agent line `+13054098546` from `+12368370221` with a natural sentence (no slash commands)
 
-## Minimum for deposit revenue
+## Notes
 
-Above + Neon + Stripe + public early-access URL
+- Checkout: set `EARLY_ACCESS_CHECKOUT_URL` to a Stripe Payment Link when ready
+- Deposit cents clamped `$99–$249` until offer locked (default `$149`)
