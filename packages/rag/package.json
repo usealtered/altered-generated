@@ -14,8 +14,8 @@
   "dependencies": {
     "@altered/db": "workspace:*",
     "@altered/env": "workspace:*",
-    "@ai-sdk/openai": "^1.3.23",
-    "ai": "^4.3.19",
+    "@ai-sdk/openai": "^2.0.117",
+    "ai": "^6.0.246",
     "zod": "^3.25.76"
   },
   "devDependencies": {

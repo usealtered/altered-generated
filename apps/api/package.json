@@ -26,7 +26,6 @@
     "@upstash/qstash": "^2.8.1",
     "drizzle-orm": "^0.44.4",
     "hono": "^4.8.5",
-    "stripe": "^18.4.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

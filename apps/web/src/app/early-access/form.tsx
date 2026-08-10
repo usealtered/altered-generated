@@ -3,10 +3,13 @@
 import { useState, useTransition } from "react";
 import styles from "./form.module.css";
 
+const depositLabel =
+  process.env.NEXT_PUBLIC_DEPOSIT_LABEL ?? "$99–$249";
+
 export function EarlyAccessForm() {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<{ checkoutUrl?: string } | null>(null);
 
   function onSubmit(formData: FormData) {
     setError(null);
@@ -21,7 +24,8 @@ export function EarlyAccessForm() {
           source: "web-early-access",
         };
         const api =
-          process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8787";
+          process.env.NEXT_PUBLIC_API_BASE_URL ??
+          "https://generated.api.usealtered.com";
         const res = await fetch(`${api}/leads`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -35,7 +39,7 @@ export function EarlyAccessForm() {
           window.location.href = data.checkoutUrl;
           return;
         }
-        setDone(true);
+        setDone({ checkoutUrl: data.checkoutUrl });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something broke");
       }
@@ -45,7 +49,10 @@ export function EarlyAccessForm() {
   if (done) {
     return (
       <div className={styles.wrap}>
-        <p className={styles.ok}>You&apos;re on the list. Deposit checkout will unlock once Stripe is connected.</p>
+        <p className={styles.ok}>
+          You&apos;re on the list. We&apos;ll send your reservation deposit link
+          ({depositLabel}) shortly.
+        </p>
       </div>
     );
   }
@@ -69,7 +76,7 @@ export function EarlyAccessForm() {
         <input name="notes" type="text" placeholder="Slack + Notion + tribal brain" />
       </label>
       <button className={styles.submit} type="submit" disabled={pending}>
-        {pending ? "Reserving…" : "Reserve — $250 deposit"}
+        {pending ? "Reserving…" : `Reserve — ${depositLabel}`}
       </button>
       {error ? <p className={styles.error}>{error}</p> : null}
     </form>

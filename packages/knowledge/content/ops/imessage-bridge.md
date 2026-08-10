@@ -4,32 +4,26 @@ title: iMessage operator bridge
 
 # iMessage ↔ Cursor bridge
 
-This repo's primary operator surface.
+Natural-language operator surface. No slash commands — AI SDK tool calling.
 
 ## Flow
 
-1. You text the Sendblue number from an allowlisted phone
-2. Webhook hits `POST /webhooks/sendblue`
-3. Chat SDK (`chat` + `chat-adapter-sendblue`) routes the DM
-4. Command parser decides: RAG ask / metrics / lead capture / Cursor follow-up
-5. Default plain text → `POST https://api.cursor.com/v1/agents/{CURSOR_OPERATING_AGENT_ID}/runs`
-6. QStash polls run completion and texts you the result summary
+1. Riley texts `+13054098546` (allowlisted `+12368370221`)
+2. Sendblue webhook → `POST /webhooks/sendblue`
+3. Chat SDK routes DM
+4. AI SDK `generateText` + tools decide actions
+5. `prompt_cursor` resumes `CURSOR_OPERATING_AGENT_ID` (also persisted in `settings.operating_agent_id`)
+6. QStash polls run completion and texts back
+7. Important facts go to `memories` (Neon) + Redis so compaction/agent switches do not erase them
 
-## Commands
+## Tools
 
-- `help`
-- `status`
-- `ask <question>` — local knowledge RAG
-- `cursor <task>` or plain text — resume operating Cursor agent
-- `plan <task>` — Cursor Plan mode
-- `new <task>` — spawn new agent on this repo
-- `link bc-...` — bind thread to agent
-- `lead <email/phone/note>`
-- `metrics`
-- `remember <note>` — queue note into knowledge via Cursor
+- `get_cursor_status`
+- `search_knowledge`
+- `prompt_cursor` / `spawn_cursor_agent` / `set_operating_agent`
+- `save_lead` / `get_metrics` / `get_checkout_link`
+- `save_memory` / `recall_memories`
 
-## Operating agent
+## Webhook URL
 
-Seed `CURSOR_OPERATING_AGENT_ID` with the durable agent you want this chat to drive (this Cloud Agent run is a good default while active).
-
-Resume URL pattern: `https://cursor.com/agents/<bcId>`
+`https://generated.api.usealtered.com/webhooks/sendblue`

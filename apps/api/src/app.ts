@@ -5,14 +5,13 @@ import {
   createOperatorContext,
   pollCursorJob,
 } from "@altered/chat";
-import { createDb, cursorJobs, dailyMetrics, leads } from "@altered/db";
+import { createDb, cursorJobs } from "@altered/db";
 import { getServerEnv } from "@altered/env";
 import { Receiver } from "@upstash/qstash";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import Stripe from "stripe";
 import { router } from "./router";
 
 const app = new Hono();
@@ -33,7 +32,7 @@ app.get("/", (c) =>
     name: "altered-api",
     health: "/health",
     rpc: "/rpc/*",
-    webhooks: ["/webhooks/sendblue", "/webhooks/stripe", "/webhooks/qstash/*"],
+    webhooks: ["/webhooks/sendblue", "/webhooks/qstash/*"],
   }),
 );
 
@@ -46,7 +45,6 @@ app.use("/rpc/*", async (c, next) => {
   await next();
 });
 
-// Contract OpenAPI routes: /health, /leads, /metrics/today, /rag/ask, /cursor/*
 app.use("*", async (c, next) => {
   if (c.req.path.startsWith("/webhooks")) return next();
   const { matched, response } = await openapi.handle(c.req.raw, {
@@ -94,7 +92,6 @@ app.post("/webhooks/qstash/cursor-poll", async (c) => {
   if (result.done && result.summary && result.notifyPhone && ctx.env.SENDBLUE_API_KEY) {
     const chat = getAlteredChat();
     await chat.initialize();
-    // Best-effort: post via Sendblue SDK on adapter
     const adapter = chat.getAdapter("sendblue") as {
       getSdk?: () => {
         messages: {
@@ -172,65 +169,6 @@ app.post("/webhooks/qstash/cursor-retry", async (c) => {
       .where(eq(cursorJobs.id, job.id));
     return c.json({ error: message }, 500);
   }
-});
-
-app.post("/webhooks/stripe", async (c) => {
-  const env = getServerEnv();
-  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET || !env.DATABASE_URL) {
-    return c.json({ error: "stripe not configured" }, 503);
-  }
-  const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-  const sig = c.req.header("stripe-signature");
-  if (!sig) return c.json({ error: "missing signature" }, 400);
-  const raw = await c.req.text();
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(raw, sig, env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    return c.json(
-      { error: err instanceof Error ? err.message : "invalid signature" },
-      400,
-    );
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    const leadId = session.metadata?.leadId;
-    const db = createDb(env.DATABASE_URL);
-    if (leadId) {
-      await db
-        .update(leads)
-        .set({
-          status: "paid",
-          reservedAt: new Date(),
-          stripePaymentIntentId:
-            typeof session.payment_intent === "string"
-              ? session.payment_intent
-              : session.payment_intent?.id,
-          updatedAt: new Date(),
-        })
-        .where(eq(leads.id, leadId));
-    }
-    const amount = session.amount_total ?? env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS;
-    const day = new Date().toISOString().slice(0, 10);
-    await db
-      .insert(dailyMetrics)
-      .values({
-        day,
-        depositsCount: 1,
-        depositsCents: amount,
-      })
-      .onConflictDoUpdate({
-        target: dailyMetrics.day,
-        set: {
-          depositsCount: sql`${dailyMetrics.depositsCount} + 1`,
-          depositsCents: sql`${dailyMetrics.depositsCents} + ${amount}`,
-          updatedAt: new Date(),
-        },
-      });
-  }
-
-  return c.json({ received: true });
 });
 
 export default app;

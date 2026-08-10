@@ -34,6 +34,13 @@ export const cursorJobStatusEnum = pgEnum("cursor_job_status", [
   "busy_retry",
 ]);
 
+export const memoryScopeEnum = pgEnum("memory_scope", [
+  "global",
+  "operator",
+  "agent",
+  "thread",
+]);
+
 export const operators = pgTable("operators", {
   id: uuid("id").defaultRandom().primaryKey(),
   phone: varchar("phone", { length: 32 }).notNull().unique(),
@@ -144,3 +151,32 @@ export const dailyMetrics = pgTable("daily_metrics", {
   cursorRuns: integer("cursor_runs").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+/** Durable key/value settings (survives agent ID changes). */
+export const settings = pgTable("settings", {
+  key: varchar("key", { length: 128 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Long-term memory independent of Cursor agent compaction.
+ * Use when switching agents or after compaction loses context.
+ */
+export const memories = pgTable(
+  "memories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scope: memoryScopeEnum("scope").notNull().default("global"),
+    scopeId: varchar("scope_id", { length: 128 }),
+    key: varchar("key", { length: 256 }),
+    content: text("content").notNull(),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("memories_scope_idx").on(t.scope, t.scopeId),
+    index("memories_key_idx").on(t.key),
+  ],
+);

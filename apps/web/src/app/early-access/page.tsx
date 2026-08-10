@@ -20,14 +20,14 @@ export default async function EarlyAccessPage({
         <p className={styles.kicker}>Knowledge Orchestration Infrastructure</p>
         <h1 className={styles.mark}>ALTERED</h1>
         <p className={styles.lede}>
-          Reserve founding access. Your deposit locks cohort pricing and puts you
+          Reserve founding access. A deposit locks cohort pricing and puts you
           first in the orchestration stack.
         </p>
         <div className={styles.ctaRow}>
           <a className={styles.primary} href="#reserve">
             Reserve with deposit
           </a>
-          <span className={styles.price}>$250 holds your seat</span>
+          <span className={styles.price}>$99–$249 holds your seat</span>
         </div>
         {params.reserved ? (
           <p className={styles.flashOk}>Reservation received. We&apos;ll confirm by email.</p>

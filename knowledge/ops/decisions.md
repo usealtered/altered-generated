@@ -4,10 +4,11 @@ title: Decisions log
 
 # Decisions
 
-## 2026-08-10 — iMessage as operator bus
+## 2026-08-10
 
-- Use **this Cursor Cloud Agent** as the durable operating surface.
-- iMessage (Sendblue + Chat SDK) is the intermediary: texts become Cursor follow-up runs on `CURSOR_OPERATING_AGENT_ID`.
-- RAG answers (`ask`) stay local so status/knowledge queries do not wake a busy agent.
-- QStash polls Cursor runs and texts back summaries.
-- Revenue path for day-0: `/early-access` + Stripe $250 deposit + Neon leads.
+- iMessage is the operator bus; this Cursor agent is the durable builder thread.
+- No slash commands — AI SDK tool calling.
+- Deposit amount band $99–$249 pending offer lock; checkout via static env URL for now.
+- Durable memory in Neon `memories` + Redis, independent of Cursor compaction.
+- Domains: `generated.api.usealtered.com` (API), `generated.usealtered.com` (site).
+- Agent line: `+13054098546`. Operator: `+12368370221`.

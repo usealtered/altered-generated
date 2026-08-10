@@ -1,62 +1,43 @@
 # altered-generated
 
-Autonomous, human-in-the-loop Hormozi-style agents and tooling for **ALTERED** — Knowledge Orchestration Infrastructure.
+Human-in-the-loop Hormozi-style agents + tooling for **ALTERED** (Knowledge Orchestration Infrastructure).
 
-Near-term goal: **$250+/day** via early-access reservation deposits.
+Near-term goal: early-access reservation deposits (**$99–$249** band until offer locked).
 
-## What’s in here
+## Surfaces
 
-| Surface | Path | Role |
-| --- | --- | --- |
-| iMessage ops bridge | `packages/chat` + `apps/api` `/webhooks/sendblue` | You text → RAG / leads / Cursor follow-up |
-| Cursor bridge | `packages/cursor-bridge` | Cloud Agents API create/resume/poll |
-| Knowledge RAG | `knowledge/` + `packages/rag` | Repo-stored operator memory |
-| API | `apps/api` | Hono + oRPC + webhooks |
-| Web | `apps/web` | Early-access deposit landing |
-| DB | `packages/db` | Neon + Drizzle |
+| Surface | Role |
+| --- | --- |
+| iMessage (`+13054098546`) | Natural-language ops via AI SDK tool calling → Cursor / RAG / leads / memory |
+| Cursor Cloud Agent | Durable builder (`CURSOR_OPERATING_AGENT_ID`) |
+| `apps/api` | Hono + oRPC + Sendblue/QStash webhooks |
+| `apps/web` | Early-access landing |
+| `knowledge/` + `memories` table | Durable memory past agent compaction |
 
-## Operator UX (iMessage)
+## Domains
 
-Text the Sendblue number:
+- API: `https://generated.api.usealtered.com`
+- Site: `https://generated.usealtered.com`
 
-- `help` — command menu
-- `status` — operating Cursor agent
-- `ask …` — RAG over `knowledge/`
-- plain text / `cursor …` — **resume this Cursor chat’s durable agent**
-- `new …` — spawn another agent on this repo
-- `lead …` — capture a lead
-- `metrics` — progress vs $250/day
+## Sendblue webhook
 
-This Cursor Cloud Agent run is the intended operating surface. Set `CURSOR_OPERATING_AGENT_ID` to its `bc-…` id (or `link bc-…` from iMessage).
+```
+https://generated.api.usealtered.com/webhooks/sendblue
+```
 
-## Monorepo
+## Operator UX
+
+Text naturally. No slash commands. The model picks tools:
+
+- prompt Cursor / check status
+- search knowledge
+- save/recall durable memory
+- capture leads / metrics / checkout link
+
+## Local
 
 ```bash
 pnpm install
+pnpm db:migrate
 pnpm dev
 ```
-
-- API: `http://localhost:8787`
-- Web: `http://localhost:3000/early-access`
-
-```bash
-pnpm db:migrate
-pnpm knowledge:index
-```
-
-## Deploy (you provision)
-
-1. Copy `.env.example` → Vercel envs for `apps/api` and `apps/web`
-2. Neon → run `pnpm db:migrate`
-3. Upstash Redis (`REDIS_URL`) + QStash
-4. Sendblue webhook → `https://<api>/webhooks/sendblue`
-5. Cursor API key + `CURSOR_OPERATING_AGENT_ID`
-6. Stripe webhook → `https://<api>/webhooks/stripe`
-7. Set `NEXT_PUBLIC_API_BASE_URL` on web
-8. Text yourself: `status`, then open `/early-access`
-
-Details live in `knowledge/ops/provisioning.md`.
-
-## Knowledge
-
-Canonical notes: `knowledge/**`. A deployable copy ships in `packages/knowledge/content`. Keep them in sync when you edit ops memory.

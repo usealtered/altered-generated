@@ -2,7 +2,7 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { Chat } from "chat";
 import { createSendblueAdapter } from "chat-adapter-sendblue";
-import { getServerEnv } from "@altered/env";
+import { getServerEnv, normalizePhone } from "@altered/env";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 
 export type AlteredChat = Chat;
@@ -49,7 +49,7 @@ export function createAlteredChat() {
     if (!text) return;
     await thread.subscribe();
     await thread.startTyping?.();
-    const phone = message.author?.userId ?? "unknown";
+    const phone = normalizePhone(message.author?.userId ?? "unknown");
     const reply = await handleOperatorMessage({
       ctx,
       chatThreadId: thread.id,

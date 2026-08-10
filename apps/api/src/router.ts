@@ -10,7 +10,6 @@ import { getServerEnv, missingCriticalEnv } from "@altered/env";
 import { getKnowledgeRoot } from "@altered/knowledge";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
 import { desc, eq, sql } from "drizzle-orm";
-import Stripe from "stripe";
 
 const os = implement(appContract);
 
@@ -49,7 +48,7 @@ export const router = os.router({
         source: input.source ?? "web",
         notes: input.notes,
         utm: input.utm,
-        status: "new",
+        status: input.wantDepositCheckout ? "qualified" : "new",
         depositAmountCents: env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
         depositCurrency: env.EARLY_ACCESS_DEPOSIT_CURRENCY,
       })
@@ -66,55 +65,10 @@ export const router = os.router({
         },
       });
 
-    let checkoutUrl: string | undefined;
-    if (
-      input.wantDepositCheckout &&
-      env.STRIPE_SECRET_KEY &&
-      env.APP_BASE_URL &&
-      lead
-    ) {
-      const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        success_url: `${env.APP_BASE_URL}/early-access?reserved=1&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${env.APP_BASE_URL}/early-access?canceled=1`,
-        customer_email: input.email,
-        line_items: env.STRIPE_EARLY_ACCESS_PRICE_ID
-          ? [{ price: env.STRIPE_EARLY_ACCESS_PRICE_ID, quantity: 1 }]
-          : [
-              {
-                quantity: 1,
-                price_data: {
-                  currency: env.EARLY_ACCESS_DEPOSIT_CURRENCY,
-                  unit_amount: env.EARLY_ACCESS_DEPOSIT_AMOUNT_CENTS,
-                  product_data: {
-                    name: "ALTERED Early Access Reservation Deposit",
-                    description:
-                      "Refundable against founding plan. Locks early-access cohort pricing.",
-                  },
-                },
-              },
-            ],
-        metadata: {
-          leadId: lead.id,
-          product: "altered_early_access_deposit",
-        },
-      });
-      checkoutUrl = session.url ?? undefined;
-      await db
-        .update(leads)
-        .set({
-          stripeCheckoutSessionId: session.id,
-          status: "qualified",
-          updatedAt: new Date(),
-        })
-        .where(eq(leads.id, lead.id));
-    }
-
     return {
       id: lead!.id,
-      status: checkoutUrl ? "qualified" : "new",
-      checkoutUrl,
+      status: lead!.status,
+      checkoutUrl: env.EARLY_ACCESS_CHECKOUT_URL,
     };
   }),
 
@@ -214,20 +168,15 @@ export const router = os.router({
       ctx: createOperatorContext({ env, knowledgeRoot: knowledgeRoot() }),
       chatThreadId: `api:${input.notifyPhone ?? "system"}`,
       phone: input.notifyPhone ?? "+10000000000",
-      text: input.mode === "plan" ? `plan ${input.prompt}` : `cursor ${input.prompt}`,
+      text: input.prompt,
     });
-    const runMatch = reply.match(/run=([a-z0-9-]+)/i);
-    const jobMatch = reply.match(/job=([a-z0-9-]+)/i);
-    const agentMatch = reply.match(/Cursor (bc-[a-z0-9-]+)/i);
+    const runMatch = reply.match(/run[=:]?\s*([a-z0-9-]+)/i);
+    const jobMatch = reply.match(/job[=:]?\s*([a-z0-9-]+)/i);
     return {
       jobId: jobMatch?.[1] ?? "unknown",
-      agentId:
-        input.agentId ??
-        agentMatch?.[1] ??
-        env.CURSOR_OPERATING_AGENT_ID ??
-        "unknown",
+      agentId: input.agentId ?? env.CURSOR_OPERATING_AGENT_ID ?? "unknown",
       runId: runMatch?.[1] && runMatch[1] !== "n/a" ? runMatch[1] : null,
-      status: reply.includes("busy") ? "busy_retry" : "running",
+      status: /busy/i.test(reply) ? "busy_retry" : "running",
     };
   }),
 });

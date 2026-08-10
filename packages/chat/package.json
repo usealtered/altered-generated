@@ -5,16 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./bot": "./src/bot.ts",
-    "./commands": "./src/commands.ts"
+    "./bot": "./src/bot.ts"
   },
   "scripts": {
-    "test": "tsx --test src/commands.test.ts",
+    "test": "tsx --test src/phone.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
   },
-
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.117",
     "@altered/cursor-bridge": "workspace:*",
     "@altered/db": "workspace:*",
     "@altered/env": "workspace:*",
@@ -24,6 +23,7 @@
     "@chat-adapter/state-redis": "^4.27.0",
     "@upstash/qstash": "^2.8.1",
     "@upstash/redis": "^1.35.3",
+    "ai": "^6.0.246",
     "chat": "^4.27.0",
     "chat-adapter-sendblue": "^0.2.0",
     "drizzle-orm": "^0.44.4",
