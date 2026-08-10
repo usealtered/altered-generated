@@ -17,6 +17,11 @@ import {
   type OperatorContext,
 } from "./operator-context";
 import {
+  extractUsage,
+  recordAiEvent,
+  toolNamesFromSteps,
+} from "./observability";
+import {
   bumpMetric,
   createOperatorTools,
   loadMemoryPreamble,
@@ -70,8 +75,9 @@ async function recentHistory(
   ctx: OperatorContext,
   phone: string,
 ): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
+  // Keep short recent turns only — durable facts live in keyed memories.
   const fromRedis =
-    (await ctx.redis?.lrange(`chat:history:${phone}`, 0, 11)) ?? [];
+    (await ctx.redis?.lrange(`chat:history:${phone}`, 0, 5)) ?? [];
   const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const item of [...fromRedis].reverse()) {
     try {
@@ -102,7 +108,8 @@ Cursor agents are DYNAMIC — do not assume a single env agent id.
 
 Default: if Riley asks you to build/fix/ship/change the repo, call prompt_cursor with a workstream.
 If he asks a factual question about the offer/ops/product, search_knowledge first.
-Persist important decisions with save_memory (keys like offer.deposit, ops.decision.*, prefs.*).
+Persist important decisions with save_memory — KEY REQUIRED (offer.deposit, ops.decision.*, prefs.*).
+Do not dump narrative into always-on context; use recall_memories / search_knowledge when needed.
 Do not claim Stripe Checkout API is wired — use get_checkout_link for PRIMARY_CHECKOUT_URL when set.`;
 
 export async function handleOperatorMessage(input: {
@@ -140,6 +147,7 @@ export async function handleOperatorMessage(input: {
 
   const openrouter = createOpenRouter(ctx.env);
   const modelId = chatAgentModelId(ctx.env);
+  const started = Date.now();
 
   try {
     const result = await generateText({
@@ -157,6 +165,20 @@ export async function handleOperatorMessage(input: {
       temperature: 0.3,
     });
 
+    const usage = extractUsage(result.usage);
+    const toolsCalled = toolNamesFromSteps(result.steps);
+    await recordAiEvent(ctx, {
+      surface: "ops_imessage",
+      threadId: thread?.id,
+      phone,
+      model: modelId,
+      ...usage,
+      latencyMs: Date.now() - started,
+      toolsCalled,
+      ok: true,
+      meta: { stepCount: Array.isArray(result.steps) ? result.steps.length : 0 },
+    });
+
     const reply = truncateForImessage(
       result.text?.trim() ||
         "Done — check tool results / Cursor status if nothing else came back.",
@@ -171,6 +193,15 @@ export async function handleOperatorMessage(input: {
     return reply;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    await recordAiEvent(ctx, {
+      surface: "ops_imessage",
+      threadId: thread?.id,
+      phone,
+      model: modelId,
+      latencyMs: Date.now() - started,
+      ok: false,
+      error: msg,
+    });
     const reply = truncateForImessage(`Error: ${msg}`);
     await saveMessage(ctx, thread?.id, "outbound", reply);
     return reply;

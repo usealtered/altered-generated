@@ -114,6 +114,7 @@ export const leads = pgTable(
     name: text("name"),
     company: text("company"),
     source: varchar("source", { length: 64 }).notNull().default("web"),
+    /** Funnel stage: new → contacted → qualified → reserved → paid | lost */
     status: leadStatusEnum("status").notNull().default("new"),
     notes: text("notes"),
     utm: jsonb("utm"),
@@ -127,7 +128,63 @@ export const leads = pgTable(
   },
   (t) => [
     index("leads_email_idx").on(t.email),
+    index("leads_phone_idx").on(t.phone),
     index("leads_status_idx").on(t.status),
+  ],
+);
+
+/** Append-only lead funnel / sales movement log. */
+export const leadEvents = pgTable(
+  "lead_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 64 }).notNull(),
+    fromStatus: leadStatusEnum("from_status"),
+    toStatus: leadStatusEnum("to_status"),
+    source: varchar("source", { length: 64 }),
+    phone: varchar("phone", { length: 32 }),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("lead_events_lead_idx").on(t.leadId),
+    index("lead_events_type_idx").on(t.type),
+    index("lead_events_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
+ * Append-only AI usage / cost events.
+ * costMicros = estimated USD * 1_000_000 (compare approaches over time).
+ */
+export const aiEvents = pgTable(
+  "ai_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    surface: varchar("surface", { length: 64 }).notNull().default("ops_imessage"),
+    threadId: uuid("thread_id"),
+    phone: varchar("phone", { length: 32 }),
+    leadId: uuid("lead_id"),
+    model: text("model"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    costMicros: integer("cost_micros").notNull().default(0),
+    latencyMs: integer("latency_ms"),
+    toolsCalled: jsonb("tools_called"),
+    ok: boolean("ok").notNull().default(true),
+    error: text("error"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("ai_events_created_idx").on(t.createdAt),
+    index("ai_events_surface_idx").on(t.surface),
+    index("ai_events_phone_idx").on(t.phone),
+    index("ai_events_lead_idx").on(t.leadId),
   ],
 );
 
@@ -211,6 +268,10 @@ export const dailyMetrics = pgTable("daily_metrics", {
   depositsCents: integer("deposits_cents").notNull().default(0),
   imessageInbound: integer("imessage_inbound").notNull().default(0),
   cursorRuns: integer("cursor_runs").notNull().default(0),
+  aiCalls: integer("ai_calls").notNull().default(0),
+  aiInputTokens: integer("ai_input_tokens").notNull().default(0),
+  aiOutputTokens: integer("ai_output_tokens").notNull().default(0),
+  aiCostMicros: integer("ai_cost_micros").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

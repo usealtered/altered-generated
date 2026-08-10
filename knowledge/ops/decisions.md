@@ -16,3 +16,6 @@ title: Decisions log
 - **Git:** agent ships to **`main`**; Riley does not manage PRs/branches (see `preferences.md`).
 - Domains: `generated.api.usealtered.com` (API), `generated.usealtered.com` (site).
 - Agent line: `+13054098546`. Operator: `+12368370221`.
+- Memory model: **keyed facts** in Postgres (not pgvector). Preamble stays tiny; tools retrieve narrative/knowledge.
+- Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
+- Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.

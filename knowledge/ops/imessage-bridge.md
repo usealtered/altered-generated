@@ -16,7 +16,9 @@ Natural-language operator surface. No slash commands — AI SDK tool calling.
 6. Related tasks share a workstream/agent chat; unrelated work gets a new agent.
 7. Open build work is stored in `dev_tasks` so chats can restart without loss.
 8. QStash polls run completion and texts back
-9. Important facts go to `memories` (Neon) + Redis + `knowledge/` so compaction/agent switches do not erase them
+9. Important facts go to keyed `memories` (Neon) + Redis + `knowledge/` so compaction/agent switches do not erase them
+10. Each LLM turn writes `ai_events` (tokens, estimated cost, tools, latency) and bumps daily AI rollups
+11. Lead create/update writes `lead_events` for funnel analytics
 
 ## Tools
 
@@ -25,7 +27,9 @@ Natural-language operator surface. No slash commands — AI SDK tool calling.
 - `search_knowledge`
 - `prompt_cursor` / `spawn_cursor_agent` / `set_operating_agent` (soft-default pin)
 - `save_lead` / `get_metrics` / `get_checkout_link`
-- `save_memory` / `recall_memories`
+- `save_memory` (key required) / `recall_memories`
+
+See also `knowledge/ops/memory-and-metrics.md`.
 
 ## Webhook URL
 

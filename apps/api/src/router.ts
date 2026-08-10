@@ -5,7 +5,7 @@ import {
   handleOperatorMessage,
 } from "@altered/chat";
 import { createCursorClient } from "@altered/cursor-bridge";
-import { createDb, dailyMetrics, leads } from "@altered/db";
+import { createDb, dailyMetrics, leadEvents, leads } from "@altered/db";
 import { getServerEnv, missingCriticalEnv } from "@altered/env";
 import { getKnowledgeRoot } from "@altered/knowledge";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
@@ -45,6 +45,7 @@ export const router = os.router({
     }
     const db = createDb(env.DATABASE_URL);
     const amountCents = await depositCents();
+    const status = input.wantDepositCheckout ? "qualified" : "new";
     const [lead] = await db
       .insert(leads)
       .values({
@@ -55,11 +56,22 @@ export const router = os.router({
         source: input.source ?? "web",
         notes: input.notes,
         utm: input.utm,
-        status: input.wantDepositCheckout ? "qualified" : "new",
+        status,
         depositAmountCents: amountCents,
         depositCurrency: env.EARLY_ACCESS_DEPOSIT_CURRENCY,
       })
       .returning();
+
+    if (lead) {
+      await db.insert(leadEvents).values({
+        leadId: lead.id,
+        type: "created",
+        toStatus: status,
+        source: input.source ?? "web",
+        phone: lead.phone ?? undefined,
+        payload: { notes: input.notes, utm: input.utm },
+      });
+    }
 
     await db
       .insert(dailyMetrics)

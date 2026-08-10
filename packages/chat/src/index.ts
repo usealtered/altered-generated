@@ -5,6 +5,11 @@ export * from "./offer";
 export * from "./model";
 export { createOperatorTools, loadMemoryPreamble } from "./tools";
 export {
+  estimateCostMicros,
+  extractUsage,
+  recordAiEvent,
+} from "./observability";
+export {
   resolveAgentId,
   resolveOperatingAgentId,
   slugifyWorkstream,

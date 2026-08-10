@@ -1,11 +1,19 @@
 import { tool } from "ai";
-import { desc, eq, or, and } from "drizzle-orm";
+import { desc, eq, or, and, isNotNull } from "drizzle-orm";
 import {
   CursorApiError,
   formatRunStatus,
   truncateForImessage,
 } from "@altered/cursor-bridge";
-import { cursorAgents, cursorJobs, dailyMetrics, leads, memories, threads } from "@altered/db";
+import {
+  cursorAgents,
+  cursorJobs,
+  dailyMetrics,
+  leadEvents,
+  leads,
+  memories,
+  threads,
+} from "@altered/db";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
@@ -641,13 +649,18 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
     }),
 
     save_lead: tool({
-      description: "Capture a sales lead (email and/or phone required).",
+      description:
+        "Capture or update a sales lead (email and/or phone required). Records a lead_events row for funnel analytics.",
       inputSchema: z.object({
         email: z.string().email().optional(),
         phone: z.string().optional(),
         name: z.string().optional(),
         company: z.string().optional(),
         notes: z.string().optional(),
+        status: z
+          .enum(["new", "contacted", "qualified", "reserved", "paid", "lost"])
+          .optional()
+          .describe("Funnel stage / status"),
       }),
       execute: async (input) => {
         if (!ctx.db) return { error: "DATABASE_URL missing" };
@@ -655,6 +668,46 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           return { error: "Need email or phone" };
         }
         const amountCents = await resolveDepositAmountCents(ctx.knowledgeRoot);
+        const existing = await ctx.db.query.leads.findFirst({
+          where: input.email
+            ? eq(leads.email, input.email)
+            : eq(leads.phone, input.phone!),
+        });
+
+        if (existing) {
+          const nextStatus = input.status ?? existing.status;
+          const [updated] = await ctx.db
+            .update(leads)
+            .set({
+              email: input.email ?? existing.email,
+              phone: input.phone ?? existing.phone,
+              name: input.name ?? existing.name,
+              company: input.company ?? existing.company,
+              notes: input.notes ?? existing.notes,
+              status: nextStatus,
+              updatedAt: new Date(),
+            })
+            .where(eq(leads.id, existing.id))
+            .returning();
+          await ctx.db.insert(leadEvents).values({
+            leadId: existing.id,
+            type: nextStatus !== existing.status ? "status_changed" : "updated",
+            fromStatus: existing.status,
+            toStatus: nextStatus,
+            source: "imessage",
+            phone: updated?.phone ?? existing.phone ?? session.phone,
+            payload: { notes: input.notes },
+          });
+          return {
+            ok: true,
+            leadId: existing.id,
+            updated: true,
+            status: nextStatus,
+            checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL,
+          };
+        }
+
+        const status = input.status ?? "new";
         const [lead] = await ctx.db
           .insert(leads)
           .values({
@@ -664,15 +717,27 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             company: input.company,
             notes: input.notes,
             source: "imessage",
-            status: "new",
+            status,
             depositAmountCents: amountCents,
             depositCurrency: ctx.env.EARLY_ACCESS_DEPOSIT_CURRENCY,
           })
           .returning();
+        if (lead) {
+          await ctx.db.insert(leadEvents).values({
+            leadId: lead.id,
+            type: "created",
+            toStatus: status,
+            source: "imessage",
+            phone: lead.phone ?? session.phone,
+            payload: { notes: input.notes },
+          });
+        }
         await bumpMetric(ctx, "leadsCreated");
         return {
           ok: true,
           leadId: lead?.id,
+          updated: false,
+          status,
           checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL,
         };
       },
@@ -698,9 +763,11 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           where: eq(dailyMetrics.day, day),
         });
         const cents = row?.depositsCents ?? 0;
+        const aiCostMicros = row?.aiCostMicros ?? 0;
+        const leadsCreated = row?.leadsCreated ?? 0;
         return {
           day,
-          leadsCreated: row?.leadsCreated ?? 0,
+          leadsCreated,
           depositsCount: row?.depositsCount ?? 0,
           depositsCents: cents,
           progressPct: Math.min(100, Math.round((cents / goalCents) * 100)),
@@ -708,6 +775,14 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           depositAmount: amountLabel,
           imessageInbound: row?.imessageInbound ?? 0,
           cursorRuns: row?.cursorRuns ?? 0,
+          aiCalls: row?.aiCalls ?? 0,
+          aiInputTokens: row?.aiInputTokens ?? 0,
+          aiOutputTokens: row?.aiOutputTokens ?? 0,
+          aiCostUsd: Number((aiCostMicros / 1_000_000).toFixed(6)),
+          aiCostPerLeadUsd:
+            leadsCreated > 0
+              ? Number((aiCostMicros / 1_000_000 / leadsCreated).toFixed(6))
+              : null,
           checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL ?? null,
         };
       },
@@ -735,13 +810,13 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     save_memory: tool({
       description:
-        "Persist durable memory that survives Cursor compaction and agent switches. Use for decisions, preferences, offer terms, open loops.",
+        "Persist a durable KEYED fact (offer terms, prefs, decisions). Key required — use namespaces like offer.deposit, ops.decision.*, prefs.*, lead.stage.*.",
       inputSchema: z.object({
         content: z.string().min(1),
         key: z
           .string()
-          .optional()
-          .describe("Optional stable key to upsert, e.g. offer.deposit"),
+          .min(1)
+          .describe("Stable key to upsert, e.g. offer.deposit"),
         scope: z
           .enum(["global", "operator", "agent", "thread"])
           .optional()
@@ -759,25 +834,23 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
                 : null;
 
         if (ctx.db) {
-          if (key) {
-            const existing = await ctx.db.query.memories.findFirst({
-              where: and(
-                eq(memories.key, key),
-                eq(memories.scope, scope ?? "global"),
-              ),
-            });
-            if (existing) {
-              await ctx.db
-                .update(memories)
-                .set({
-                  content,
-                  scopeId: scopeId ?? undefined,
-                  updatedAt: new Date(),
-                })
-                .where(eq(memories.id, existing.id));
-              await mirrorMemoryRedis(ctx, key, content);
-              return { ok: true, id: existing.id, upserted: true };
-            }
+          const existing = await ctx.db.query.memories.findFirst({
+            where: and(
+              eq(memories.key, key),
+              eq(memories.scope, scope ?? "global"),
+            ),
+          });
+          if (existing) {
+            await ctx.db
+              .update(memories)
+              .set({
+                content,
+                scopeId: scopeId ?? undefined,
+                updatedAt: new Date(),
+              })
+              .where(eq(memories.id, existing.id));
+            await mirrorMemoryRedis(ctx, key, content);
+            return { ok: true, id: existing.id, upserted: true, key };
           }
           const [row] = await ctx.db
             .insert(memories)
@@ -788,8 +861,8 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
               scopeId: scopeId ?? undefined,
             })
             .returning();
-          if (key) await mirrorMemoryRedis(ctx, key, content);
-          return { ok: true, id: row?.id, upserted: false };
+          await mirrorMemoryRedis(ctx, key, content);
+          return { ok: true, id: row?.id, upserted: false, key };
         }
 
         if (ctx.redis) {
@@ -799,8 +872,8 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             JSON.stringify({ id, key, content, at: Date.now() }),
           );
           await ctx.redis.ltrim("memories:global", 0, 199);
-          if (key) await mirrorMemoryRedis(ctx, key, content);
-          return { ok: true, id, redisOnly: true };
+          await mirrorMemoryRedis(ctx, key, content);
+          return { ok: true, id, redisOnly: true, key };
         }
         return { error: "No DB or Redis to store memory" };
       },
@@ -864,6 +937,10 @@ async function mirrorMemoryRedis(
   await ctx.redis?.set(`memory:key:${key}`, content);
 }
 
+/**
+ * Tight always-on context: soft-default + ≤3 open tasks + ≤6 keyed facts.
+ * Narrative notes stay out of preamble — use recall_memories / search_knowledge.
+ */
 export async function loadMemoryPreamble(
   ctx: OperatorContext,
   phone: string,
@@ -873,26 +950,12 @@ export async function loadMemoryPreamble(
   if (soft) parts.push(`Soft-default Cursor agent: ${soft}`);
 
   if (ctx.db) {
-    const activeAgents = await ctx.db
-      .select()
-      .from(cursorAgents)
-      .where(eq(cursorAgents.status, "active"))
-      .orderBy(desc(cursorAgents.updatedAt))
-      .limit(5);
-    if (activeAgents.length) {
-      parts.push(
-        `Active agents: ${activeAgents
-          .map((a) => `${a.workstream}=${a.agentId}`)
-          .join(", ")}`,
-      );
-    }
-
-    const openTasks = await listDevTasks(ctx, { status: "active", limit: 6 });
+    const openTasks = await listDevTasks(ctx, { status: "active", limit: 3 });
     if (openTasks.length) {
       parts.push("Open dev tasks:");
       for (const t of openTasks) {
         parts.push(
-          `- [${t.status}] ${t.workstream}: ${truncateForImessage(t.title, 100)}${t.agentId ? ` (${t.agentId})` : ""}`,
+          `- [${t.status}] ${t.workstream}: ${truncateForImessage(t.title, 80)}${t.agentId ? ` (${t.agentId})` : ""}`,
         );
       }
     }
@@ -901,29 +964,38 @@ export async function loadMemoryPreamble(
       .select()
       .from(memories)
       .where(
-        or(
-          eq(memories.scope, "global"),
-          and(eq(memories.scope, "operator"), eq(memories.scopeId, phone)),
+        and(
+          isNotNull(memories.key),
+          or(
+            eq(memories.scope, "global"),
+            and(eq(memories.scope, "operator"), eq(memories.scopeId, phone)),
+          ),
         ),
       )
       .orderBy(desc(memories.updatedAt))
-      .limit(12);
-    for (const r of rows) {
-      parts.push(
-        `- [${r.key ?? r.scope}] ${truncateForImessage(r.content, 280)}`,
-      );
+      .limit(6);
+    if (rows.length) {
+      parts.push("Keyed facts:");
+      for (const r of rows) {
+        parts.push(
+          `- ${r.key}: ${truncateForImessage(r.content, 160)}`,
+        );
+      }
     }
   } else if (ctx.redis) {
-    const raw = (await ctx.redis.lrange("memories:global", 0, 11)) ?? [];
+    const raw = (await ctx.redis.lrange("memories:global", 0, 5)) ?? [];
     for (const item of raw) {
       try {
         const parsed =
-          typeof item === "string" ? JSON.parse(item) : (item as { content?: string; key?: string });
+          typeof item === "string"
+            ? JSON.parse(item)
+            : (item as { content?: string; key?: string });
+        if (!parsed.key) continue;
         parts.push(
-          `- [${parsed.key ?? "memory"}] ${truncateForImessage(String(parsed.content ?? item), 280)}`,
+          `- ${parsed.key}: ${truncateForImessage(String(parsed.content ?? ""), 160)}`,
         );
       } catch {
-        parts.push(`- ${truncateForImessage(String(item), 280)}`);
+        /* skip */
       }
     }
   }
