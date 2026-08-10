@@ -16,8 +16,12 @@ Near-term goal: early-access reservation deposits (**$99–$249** band until off
 
 ## Domains
 
-- API: `https://generated.api.usealtered.com`
+- API: `https://generated.api.usealtered.com` (`usealtered/api-generated` on Vercel)
 - Site: `https://generated.usealtered.com`
+
+## Constraints
+
+Vercel token (if present) is **only** for `usealtered/api-generated`. Never touch other Vercel projects or external integrations without permission. See `AGENTS.md`.
 
 ## Sendblue webhook
 
