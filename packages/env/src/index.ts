@@ -1,53 +1,65 @@
 import { z } from "zod";
 
-const optionalUrl = z.string().url().optional();
+/** Treat "", null as unset so Vercel empty env vars don't fail Zod. */
+const emptyToUndefined = (value: unknown) =>
+  value === "" || value === null || value === undefined ? undefined : value;
+
+const optionalString = z.preprocess(
+  emptyToUndefined,
+  z.string().min(1).optional(),
+);
+
+const optionalUrl = z.preprocess(
+  emptyToUndefined,
+  z.string().url().optional(),
+);
 
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  DATABASE_URL: z.string().min(1).optional(),
+  DATABASE_URL: optionalString,
 
   /** redis:// / rediss:// for Chat SDK state (Upstash redis protocol URL) */
-  REDIS_URL: z.string().optional(),
+  REDIS_URL: optionalString,
   UPSTASH_REDIS_REST_URL: optionalUrl,
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  UPSTASH_REDIS_REST_TOKEN: optionalString,
 
-  QSTASH_TOKEN: z.string().optional(),
+  QSTASH_TOKEN: optionalString,
   QSTASH_URL: optionalUrl,
-  QSTASH_CURRENT_SIGNING_KEY: z.string().optional(),
-  QSTASH_NEXT_SIGNING_KEY: z.string().optional(),
+  QSTASH_CURRENT_SIGNING_KEY: optionalString,
+  QSTASH_NEXT_SIGNING_KEY: optionalString,
 
-  SENDBLUE_API_KEY: z.string().optional(),
-  SENDBLUE_API_SECRET: z.string().optional(),
+  SENDBLUE_API_KEY: optionalString,
+  SENDBLUE_API_SECRET: optionalString,
   /** Agent iMessage line, e.g. +13054098546 */
-  SENDBLUE_FROM_NUMBER: z.string().optional(),
-  SENDBLUE_WEBHOOK_SECRET: z.string().optional(),
+  SENDBLUE_FROM_NUMBER: optionalString,
+  SENDBLUE_WEBHOOK_SECRET: optionalString,
 
-  CURSOR_API_KEY: z.string().optional(),
+  CURSOR_API_KEY: optionalString,
   /**
    * Optional bootstrap only. Runtime uses dynamic agent IDs in DB
    * (`cursor_agents` + soft-default `settings.active_agent_id`) by workstream.
    */
-  CURSOR_OPERATING_AGENT_ID: z.string().optional(),
+  CURSOR_OPERATING_AGENT_ID: optionalString,
   CURSOR_DEFAULT_REPO_URL: z
     .string()
     .default("https://github.com/usealtered/altered-generated"),
   CURSOR_DEFAULT_REF: z.string().default("main"),
 
   /** Comma-separated E.164 phones allowed to drive the operator bridge */
-  OPERATOR_PHONE_ALLOWLIST: z.string().optional(),
+  OPERATOR_PHONE_ALLOWLIST: optionalString,
 
   /** OpenRouter for AI SDK tool-calling operator */
-  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: optionalString,
   CHAT_AGENT_MODEL_ID: z.string().default("anthropic/claude-sonnet-5"),
 
   /** Public API origin, e.g. https://generated.api.usealtered.com */
-  APP_BASE_URL: z.string().url().optional(),
+  APP_BASE_URL: optionalUrl,
   /** Public site origin, e.g. https://generated.usealtered.com */
-  SITE_BASE_URL: z.string().url().optional(),
+  SITE_BASE_URL: optionalUrl,
 
   EARLY_ACCESS_DEPOSIT_CURRENCY: z.string().default("usd"),
-  /** Static Stripe Payment Link / Checkout URL */
-  PRIMARY_CHECKOUT_URL: z.string().url().optional(),
+  /** Static Stripe Payment Link / Checkout URL — optional until offer locked */
+  PRIMARY_CHECKOUT_URL: optionalUrl,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

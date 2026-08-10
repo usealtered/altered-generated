@@ -1,13 +1,6 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "src/app.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["../../packages/knowledge/content/**"]
-      }
-    }
-  ],
-  "routes": [{ "src": "/(.*)", "dest": "src/app.ts" }]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm knowledge:sync && pnpm --filter @altered/api build:vercel"
 }

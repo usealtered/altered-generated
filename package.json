@@ -14,12 +14,17 @@
     "knowledge:sync": "rm -rf packages/knowledge/content && mkdir -p packages/knowledge/content && cp -R knowledge/. packages/knowledge/content/",
     "test": "turbo run test"
   },
-
   "devDependencies": {
     "turbo": "^2.5.4",
     "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
   }
 }

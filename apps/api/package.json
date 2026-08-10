@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/serve.ts",
     "build": "tsup src/app.ts src/serve.ts --format esm --dts --out-dir dist",
+    "build:vercel": "node ./scripts/build-vercel.mjs",
     "start": "node dist/serve.js",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
