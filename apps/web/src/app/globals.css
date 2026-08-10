@@ -1,0 +1,79 @@
+:root {
+  --ink: #07110f;
+  --ink-2: #0d1c18;
+  --fog: #d7ebe3;
+  --mist: #9bb8ad;
+  --signal: #b6ff3c;
+  --signal-deep: #7db812;
+  --danger: #ff6b4a;
+  --line: rgba(215, 235, 227, 0.14);
+  --glow: rgba(182, 255, 60, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--ink);
+  color: var(--fog);
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 80% -10%, rgba(182, 255, 60, 0.12), transparent 55%),
+    radial-gradient(900px 500px at 10% 20%, rgba(56, 140, 110, 0.22), transparent 50%),
+    linear-gradient(165deg, #050c0a 0%, #0a1612 45%, #07110f 100%);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: var(--signal);
+  color: var(--ink);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-30%) scaleX(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-line {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}

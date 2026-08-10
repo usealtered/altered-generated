@@ -1,0 +1,25 @@
+{
+  "name": "altered-generated",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @altered/db generate",
+    "db:migrate": "pnpm --filter @altered/db migrate",
+    "db:studio": "pnpm --filter @altered/db studio",
+    "knowledge:index": "pnpm --filter @altered/rag index",
+    "knowledge:sync": "rm -rf packages/knowledge/content && mkdir -p packages/knowledge/content && cp -R knowledge/. packages/knowledge/content/",
+    "test": "turbo run test"
+  },
+
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

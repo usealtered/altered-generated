@@ -1,0 +1,38 @@
+{
+  "name": "@altered/chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bot": "./src/bot.ts",
+    "./commands": "./src/commands.ts"
+  },
+  "scripts": {
+    "test": "tsx --test src/commands.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo ok"
+  },
+
+  "dependencies": {
+    "@altered/cursor-bridge": "workspace:*",
+    "@altered/db": "workspace:*",
+    "@altered/env": "workspace:*",
+    "@altered/knowledge": "workspace:*",
+    "@altered/rag": "workspace:*",
+    "@chat-adapter/state-memory": "^4.27.0",
+    "@chat-adapter/state-redis": "^4.27.0",
+    "@upstash/qstash": "^2.8.1",
+    "@upstash/redis": "^1.35.3",
+    "chat": "^4.27.0",
+    "chat-adapter-sendblue": "^0.2.0",
+    "drizzle-orm": "^0.44.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@altered/tsconfig": "workspace:*",
+    "@types/node": "^22.17.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
+  }
+}

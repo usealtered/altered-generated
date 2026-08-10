@@ -1,0 +1,39 @@
+{
+  "name": "@altered/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/serve.ts",
+    "build": "tsup src/app.ts src/serve.ts --format esm --dts --out-dir dist",
+    "start": "node dist/serve.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@altered/api-contract": "workspace:*",
+    "@altered/chat": "workspace:*",
+    "@altered/cursor-bridge": "workspace:*",
+    "@altered/db": "workspace:*",
+    "@altered/env": "workspace:*",
+    "@altered/knowledge": "workspace:*",
+    "@altered/rag": "workspace:*",
+    "@hono/node-server": "^1.14.4",
+    "@orpc/openapi": "^1.15.0",
+    "@orpc/server": "^1.15.0",
+    "@orpc/zod": "^1.15.0",
+
+    "@upstash/qstash": "^2.8.1",
+    "drizzle-orm": "^0.44.4",
+    "hono": "^4.8.5",
+    "stripe": "^18.4.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@altered/tsconfig": "workspace:*",
+    "@types/node": "^22.17.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
+  }
+}
