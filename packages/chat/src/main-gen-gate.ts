@@ -17,26 +17,37 @@ type Gate = {
 
 const gates = new Map<string, Gate>();
 
+/** Abort in-flight main-gen without starting a replacement (coalesce reschedule). */
+export function abortMainGenIfRunning(
+  threadId: string,
+  trace?: TraceContext,
+  reason: string = "superseded_by_new_inbound",
+): boolean {
+  const prev = gates.get(threadId);
+  if (!prev || prev.controller.signal.aborted) return false;
+  prev.controller.abort();
+  if (trace) {
+    traceLog(trace, "main_gen_aborted", {
+      abortedGeneration: prev.generation,
+      ranMs: Date.now() - prev.startedAt,
+      reason,
+    });
+  }
+  console.info("[altered-ops] main gen aborted (superseded)", {
+    threadId,
+    abortedGeneration: prev.generation,
+    ranMs: Date.now() - prev.startedAt,
+    reason,
+  });
+  return true;
+}
+
 export function beginMainGen(
   threadId: string,
   trace?: TraceContext,
 ): { signal: AbortSignal; generation: number } {
   const prev = gates.get(threadId);
-  if (prev && !prev.controller.signal.aborted) {
-    prev.controller.abort();
-    if (trace) {
-      traceLog(trace, "main_gen_aborted", {
-        abortedGeneration: prev.generation,
-        ranMs: Date.now() - prev.startedAt,
-        reason: "superseded_by_new_inbound",
-      });
-    }
-    console.info("[altered-ops] main gen aborted (superseded)", {
-      threadId,
-      abortedGeneration: prev.generation,
-      ranMs: Date.now() - prev.startedAt,
-    });
-  }
+  abortMainGenIfRunning(threadId, trace, "superseded_by_new_inbound");
 
   const controller = new AbortController();
   const generation = (prev?.generation ?? 0) + 1;

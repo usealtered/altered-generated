@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
 import {
+  abortMainGenIfRunning,
   beginMainGen,
   isCurrentMainGen,
   resetMainGenGatesForTests,
@@ -31,5 +32,13 @@ describe("main-gen-gate", () => {
     beginMainGen("t-a");
     assert.equal(a.signal.aborted, true);
     assert.equal(b.signal.aborted, false);
+  });
+
+  it("abortMainGenIfRunning does not start a replacement generation", () => {
+    const a = beginMainGen("t-abort");
+    assert.equal(abortMainGenIfRunning("t-abort"), true);
+    assert.equal(a.signal.aborted, true);
+    assert.equal(isCurrentMainGen("t-abort", a.generation), true);
+    assert.equal(abortMainGenIfRunning("t-abort"), false);
   });
 });

@@ -12,9 +12,9 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 2. Sendblue webhook → `POST /webhooks/sendblue`
 3. **Read receipt + fast-ack at webhook** (direct Sendblue HTTP, no Chat SDK lock): mark-read awaited ≤2s; Haiku ack waitUntil'd in parallel with handler. Overlap-B can ack while A still holds the burst lock.
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
-5. Chat SDK **burst** concurrency (`debounceMs: 400`): rapid texts coalesce into one handler (latest + `skipped[]`). Prior main-gen on the thread is aborted when a new turn starts.
+5. Chat SDK **burst** concurrency (`debounceMs: 1500`): first-pass coalesce while inbound lock held (latest + `skipped[]`).
 6. Handler skips fast-ack if webhook claimed/sent it (`ack-claimed:` / `ack-sent:${messageHandle}`). Claim is set before Haiku so handler never double-generates. Backup ack only if webhook path never claimed.
-7. **Inbound lock released after fast-ack** — main Sonnet/`generateText` runs via `waitUntil` (`main_gen_detached`) so the next text is not blocked 20-60s. Forced tools (`toolChoice: "required"` + `done`). Must not send a second status ack.
+7. **Inbound lock released after fast-ack** — main Sonnet is **coalesced across handlers** (`scheduleCoalescedMainGen`, quiet window `MAIN_GEN_COALESCE_MS=2000`): follow-ups during the window or mid-Sonnet abort the prior turn and flush ONE gen with the full joined text (`main_gen_coalesce_flush` partCount). Forced tools (`toolChoice: "required"` + `done`). Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status). Code sanitizer strips em dashes/markdown.
 9. Per-thread outbound send lock (in-process + Redis SET NX) serializes replies vs background completion notices. Lock key is the canonical base64url Sendblue thread id.
 10. Cursor completions: QStash poll → Redis debounce (~3s) + drain lock → forced-tool plain-text summary (never raw markdown tables)
@@ -27,8 +27,8 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 | Layer | Mechanism | Behavior |
 |---|---|---|
-| Chat SDK inbound | `burst` + `debounceMs: 400` + Redis state locks | Coalesces rapid texts; lock held through burst window + fast-ack only |
-| Main gen | Detached via waitUntil + per-thread AbortController | New inbound aborts superseded Sonnet turn (`main_gen_aborted`) |
+| Chat SDK inbound | `burst` + `debounceMs: 1500` + Redis state locks | First-pass coalesce; lock held through burst window + fast-ack only |
+| Main gen | Cross-handler coalesce (`MAIN_GEN_COALESCE_MS=2000`) + AbortController | Quiet window merges texts; mid-Sonnet follow-up aborts + re-flush with full context |
 | Sendblue adapter (`#integration` fork) | `sendReadReceipts: false` (we own mark-read) | Chat SDK locks still serialize inbound handlers |
 | Our webhook | Await direct mark-read (≤2s) + `waitUntil` before/around init | Receipt completes in-request; `webhookAgeMs` + `apiMs` traced |
 | Handler | `sinceWebhookMs` from Redis `trace:wh:*` | Measures queue/lock delay webhook→handler_start |

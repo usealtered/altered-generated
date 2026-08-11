@@ -48,6 +48,15 @@ export {
 } from "./trace";
 export { setBackgroundScheduler, runInBackground } from "./background";
 export {
+  MAIN_GEN_COALESCE_MS,
+  scheduleCoalescedMainGen,
+} from "./main-gen-coalesce";
+export {
+  beginMainGen,
+  abortMainGenIfRunning,
+  isCurrentMainGen,
+} from "./main-gen-gate";
+export {
   rememberWebhookReceivedAt,
   lookupWebhookReceivedAt,
   markWebhookAckClaimed,

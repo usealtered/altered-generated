@@ -5,7 +5,11 @@ import { createSendblueAdapter } from "chat-adapter-sendblue";
 import { getServerEnv, normalizePhone } from "@altered/env";
 import { runInBackground } from "./background";
 import { generateFastAck } from "./fast-ack";
-import { beginMainGen, isCurrentMainGen } from "./main-gen-gate";
+import {
+  MAIN_GEN_COALESCE_MS,
+  scheduleCoalescedMainGen,
+} from "./main-gen-coalesce";
+import { isCurrentMainGen } from "./main-gen-gate";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
@@ -128,12 +132,12 @@ export function createAlteredChat() {
   const env = getServerEnv();
   const chat = new Chat({
     userName: "altered-ops",
-    // Burst: short window coalesces rapid texts into ONE handler (latest +
-    // skipped[]). Queue+detached-main-gen was releasing the lock after fast-ack
-    // (~2s), so four quick texts became four full Sonnet turns.
+    // Burst coalesces only while the inbound lock is held. We release that
+    // lock after fast-ack, so this window is a first-pass merge; main-gen
+    // coalescing (MAIN_GEN_COALESCE_MS) merges across handlers.
     concurrency: {
       strategy: "burst",
-      debounceMs: 400,
+      debounceMs: 1_500,
       maxQueueSize: 20,
       onQueueFull: "drop-oldest",
     },
@@ -265,24 +269,44 @@ export function createAlteredChat() {
     void thread.subscribe().catch(() => undefined);
 
     // Detach Sonnet so the Chat SDK burst lock releases after fast-ack.
-    // Abort any prior in-flight main-gen on this thread (rapid follow-ups).
-    const { signal, generation } = beginMainGen(thread.id, trace);
-    traceLog(trace, "main_gen_detached", {
-      handlerMs: Date.now() - handlerStarted,
-      sinceWebhookMs,
-      generation,
-      coalesced: context?.totalSinceLastHandler ?? 1,
-    });
+    // Coalesce across handlers: follow-ups during the quiet window (or while
+    // a prior Sonnet is still running) merge into ONE main-gen with full text.
+    const scheduled = scheduleCoalescedMainGen({
+      threadId: thread.id,
+      text,
+      trace,
+      debounceMs: MAIN_GEN_COALESCE_MS,
+      execute: async ({ composedText, signal, generation, partCount }) => {
+        // Fresh outbound for the flushed turn (latest thread.post binding).
+        const flushOutbound = createOutboundSession({
+          id: thread.id,
+          post: (body) => thread.post(body),
+          startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
+          sendReadReceipt: () =>
+            fireReadReceipt(adapter, thread.id, {
+              phone,
+              trace,
+              source: "outbound_session",
+            }),
+          trace,
+          messageHandle,
+        });
 
-    runInBackground(
-      (async () => {
+        traceLog(trace, "main_gen_detached", {
+          handlerMs: Date.now() - handlerStarted,
+          sinceWebhookMs,
+          generation,
+          coalesced: partCount,
+          burstSkipped: context?.skipped?.length ?? 0,
+        });
+
         try {
           const reply = await handleOperatorMessage({
             ctx,
             chatThreadId: thread.id,
             phone,
-            text,
-            outbound,
+            text: composedText,
+            outbound: flushOutbound,
             trace,
             abortSignal: signal,
           });
@@ -290,29 +314,33 @@ export function createAlteredChat() {
             traceLog(trace, "main_gen_aborted", {
               generation,
               reason: "stale_after_complete",
+              partCount,
             });
             return;
           }
           traceLog(trace, "turn_complete", {
             replyLen: reply.length,
-            sends: outbound.sent.length,
+            sends: flushOutbound.sent.length,
             totalMs: Date.now() - handlerStarted,
             sinceWebhookMs,
             generation,
+            partCount,
           });
           console.info("[altered-ops] turn complete", {
             phone,
             cid: trace.cid,
             replyLen: reply.length,
-            sends: outbound.sent.length,
+            sends: flushOutbound.sent.length,
             totalMs: Date.now() - handlerStarted,
             generation,
+            partCount,
           });
         } catch (err) {
           if (signal.aborted || !isCurrentMainGen(thread.id, generation)) {
             traceLog(trace, "main_gen_aborted", {
               generation,
               reason: "abort_signal",
+              partCount,
             });
             return;
           }
@@ -321,25 +349,29 @@ export function createAlteredChat() {
             traceLog(trace, "main_gen_aborted", {
               generation,
               reason: "abort_error",
+              partCount,
             });
             return;
           }
-          traceLog(trace, "turn_error", { error: msg, generation });
+          traceLog(trace, "turn_error", { error: msg, generation, partCount });
           console.error("[altered-ops] inbound handler failed", {
             phone,
             cid: trace.cid,
             error: msg,
           });
           try {
-            await outbound.send(
+            await flushOutbound.send(
               `Error handling message: ${msg}`.slice(0, 400),
             );
           } catch {
             /* ignore secondary send failure */
           }
         }
-      })(),
-    );
+      },
+    });
+
+    // Keep the isolate alive through debounce quiet-window + Sonnet.
+    runInBackground(scheduled.promise);
   };
 
   chat.onDirectMessage(async (thread, message, _channel, context) => {
