@@ -31,5 +31,18 @@ export {
   claimThreadStatusAck,
   STATUS_ACK_TTL_SEC,
 } from "./thread-lock";
-export { sendblueThreadIdForContact } from "./thread-id";
+export {
+  sendblueThreadIdForContact,
+  decodeSendblueThreadId,
+} from "./thread-id";
 export { generateFastAck } from "./fast-ack";
+export { sendMarkReadDirect } from "./read-receipt";
+export {
+  createTrace,
+  makeTraceCid,
+  parseSendblueDateSent,
+  webhookAgeMs,
+  traceLog,
+  type TraceContext,
+  type TraceStage,
+} from "./trace";

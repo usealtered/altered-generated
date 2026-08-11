@@ -12,6 +12,8 @@
 
 import { Redis } from "@upstash/redis";
 import { getServerEnv } from "@altered/env";
+import type { TraceContext } from "./trace";
+import { traceLog } from "./trace";
 
 const gates = new Map<string, Promise<unknown>>();
 
@@ -138,6 +140,7 @@ export async function claimThreadStatusAck(
 export async function withThreadSendLock<T>(
   threadKey: string,
   fn: () => Promise<T>,
+  trace?: TraceContext,
 ): Promise<T> {
   return withInProcessLock(threadKey, async () => {
     const redis = getRedis();
@@ -146,14 +149,25 @@ export async function withThreadSendLock<T>(
     const key = sendLockKey(threadKey);
     const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const started = Date.now();
+    let waitedLogged = false;
 
     while (Date.now() - started < LOCK_WAIT_MS) {
       try {
         if (await acquireRedisLock(redis, key, token, LOCK_TTL_SEC)) {
+          const waitMs = Date.now() - started;
+          if (trace) {
+            traceLog(trace, "send_lock_acquired", { waitMs, threadKey });
+          }
           try {
             return await fn();
           } finally {
             await releaseRedisLock(redis, key, token).catch(() => undefined);
+            if (trace) {
+              traceLog(trace, "send_lock_released", {
+                heldMs: Date.now() - started - waitMs,
+                threadKey,
+              });
+            }
           }
         }
       } catch (err) {
@@ -162,6 +176,15 @@ export async function withThreadSendLock<T>(
           error: err instanceof Error ? err.message : String(err),
         });
         // Fall through to retry / eventual fallback.
+      }
+      if (!waitedLogged && Date.now() - started > 100) {
+        waitedLogged = true;
+        if (trace) {
+          traceLog(trace, "send_lock_wait", {
+            waitedMs: Date.now() - started,
+            threadKey,
+          });
+        }
       }
       await new Promise((r) => setTimeout(r, 40 + Math.random() * 60));
     }

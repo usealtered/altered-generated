@@ -2,11 +2,15 @@ import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { RPCHandler } from "@orpc/server/fetch";
 import {
   createOperatorContext,
-  fireReadReceipt,
+  createTrace,
   flushCompletionNotices,
   getAlteredChat,
+  parseSendblueDateSent,
   pollCursorJob,
   sendblueThreadIdForContact,
+  sendMarkReadDirect,
+  traceLog,
+  webhookAgeMs,
 } from "@altered/chat";
 import { createDb, cursorJobs } from "@altered/db";
 import { getServerEnv, normalizePhone } from "@altered/env";
@@ -73,21 +77,18 @@ app.use("*", async (c, next) => {
   await next();
 });
 
+type SendblueInboundBody = Record<string, unknown>;
+
 /**
- * Early read receipt: fire mark-read and register with waitUntil BEFORE Chat SDK
- * processMessage / per-thread lock. Prevents ~20s delays when a prior status send
- * still holds the inbound handler lock (adapter fire-and-forget was not tracked).
+ * Earliest possible read receipt: direct Sendblue HTTP, no Chat SDK init.
+ * Registered with waitUntil so cold-start initialize cannot delay mark-read.
  */
-async function earlySendblueReadReceipt(req: Request) {
+function earlySendblueReadReceipt(
+  body: SendblueInboundBody,
+  receivedAt: number,
+) {
   const env = getServerEnv();
   if (!env.SENDBLUE_FROM_NUMBER) return;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.clone().json()) as Record<string, unknown>;
-  } catch {
-    return;
-  }
 
   if (body.is_outbound === true) return;
   if (body.status !== "RECEIVED") return;
@@ -101,16 +102,52 @@ async function earlySendblueReadReceipt(req: Request) {
   );
   if (!contact || !from || contact === from) return;
 
-  const chat = getAlteredChat();
-  await chat.initialize();
-  const adapter = chat.getAdapter("sendblue") as {
-    sendReadReceipt?: (threadId: string) => Promise<unknown>;
-  };
+  const messageHandle = body.message_handle;
+  const dateSentMs = parseSendblueDateSent(
+    body.date_sent ?? body.dateSent ?? body.sent_at,
+  );
   const threadId = sendblueThreadIdForContact(from, contact);
-  trackWaitUntil(fireReadReceipt(adapter, threadId, { phone: contact }));
+  const trace = createTrace({
+    messageHandle,
+    phone: contact,
+    threadId,
+    t0: receivedAt,
+  });
+
+  const content =
+    typeof body.content === "string" ? body.content.slice(0, 80) : undefined;
+
+  traceLog(trace, "webhook_received", {
+    dateSent: dateSentMs ? new Date(dateSentMs).toISOString() : null,
+    dateSentRaw: body.date_sent ?? body.dateSent ?? body.sent_at ?? null,
+    webhookAgeMs: webhookAgeMs(dateSentMs, receivedAt),
+    textPreview: content,
+    service: body.service ?? null,
+  });
+
+  // Fire mark-read immediately - do not await Chat SDK initialize.
+  trackWaitUntil(
+    sendMarkReadDirect({
+      contactNumber: contact,
+      fromNumber: from,
+      trace,
+      source: "webhook_early",
+    }),
+  );
 }
 
 app.post("/webhooks/sendblue", async (c) => {
+  const receivedAt = Date.now();
+  let body: SendblueInboundBody = {};
+  try {
+    body = (await c.req.raw.clone().json()) as SendblueInboundBody;
+  } catch {
+    body = {};
+  }
+
+  // Receipt first (waitUntil-tracked), before Chat SDK init / handler lock.
+  earlySendblueReadReceipt(body, receivedAt);
+
   const chat = getAlteredChat();
   await chat.initialize();
   const handle = chat.webhooks.sendblue;
@@ -118,12 +155,38 @@ app.post("/webhooks/sendblue", async (c) => {
     return c.json({ error: "sendblue adapter not mounted" }, 500);
   }
 
-  // Receipt first (waitUntil-tracked), independent of handler lock / status sends.
-  await earlySendblueReadReceipt(c.req.raw);
-
-  return handle(c.req.raw, {
+  const response = await handle(c.req.raw, {
     waitUntil: trackWaitUntil,
   });
+
+  if (
+    body.is_outbound !== true &&
+    body.status === "RECEIVED" &&
+    typeof body.message_handle === "string"
+  ) {
+    const env = getServerEnv();
+    const contact = normalizePhone(
+      String(body.number ?? body.from_number ?? ""),
+    );
+    const from = normalizePhone(
+      String(
+        body.sendblue_number ?? body.to_number ?? env.SENDBLUE_FROM_NUMBER ?? "",
+      ),
+    );
+    const trace = createTrace({
+      messageHandle: body.message_handle,
+      phone: contact || undefined,
+      threadId:
+        contact && from ? sendblueThreadIdForContact(from, contact) : undefined,
+      t0: receivedAt,
+    });
+    traceLog(trace, "webhook_http_ok", {
+      httpStatus: response.status,
+      httpMs: Date.now() - receivedAt,
+    });
+  }
+
+  return response;
 });
 
 async function verifyQstash(req: Request) {

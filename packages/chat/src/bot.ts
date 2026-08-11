@@ -6,8 +6,11 @@ import { getServerEnv, normalizePhone } from "@altered/env";
 import { generateFastAck } from "./fast-ack";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
+import { sendMarkReadDirect } from "./read-receipt";
+import { decodeSendblueThreadId } from "./thread-id";
+import { createTrace, type TraceContext, traceLog } from "./trace";
 
-export { sendblueThreadIdForContact } from "./thread-id";
+export { sendblueThreadIdForContact, decodeSendblueThreadId } from "./thread-id";
 
 export type AlteredChat = Chat;
 
@@ -68,6 +71,16 @@ function resolveInboundPhone(
   return candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
 }
 
+function messageHandleFromRaw(message: MessageLike): string | undefined {
+  const raw =
+    message.raw && typeof message.raw === "object"
+      ? (message.raw as { message_handle?: string })
+      : undefined;
+  return typeof raw?.message_handle === "string"
+    ? raw.message_handle
+    : undefined;
+}
+
 /** Combine queue skipped messages with the latest into one operator turn. */
 function composeTurnText(message: MessageLike, context?: MessageContextLike) {
   const parts = [...(context?.skipped ?? []), message]
@@ -81,35 +94,30 @@ function composeTurnText(message: MessageLike, context?: MessageContextLike) {
 }
 
 /**
- * Fire read receipt immediately. Never await behind status/LLM work.
- * Caller should also register the promise with waitUntil so the isolate stays warm.
+ * Fire read receipt immediately via direct Sendblue HTTP.
+ * Never await behind status/LLM work. Prefer webhook_early path in app.ts.
  */
 export function fireReadReceipt(
-  adapter: SendblueAdapterLike | undefined,
+  _adapter: SendblueAdapterLike | undefined,
   threadId: string,
-  meta?: { phone?: string },
+  meta?: { phone?: string; trace?: TraceContext; source?: string },
 ): Promise<void> {
-  const task = (async () => {
-    if (adapter?.sendReadReceipt) {
-      await adapter.sendReadReceipt(threadId);
-      return;
-    }
-    await adapter?.markRead?.(threadId);
-  })()
-    .then(() => {
-      console.info("[altered-ops] read receipt sent", {
-        phone: meta?.phone,
-        threadId,
-      });
-    })
-    .catch((err) => {
-      console.warn("[altered-ops] read receipt failed", {
-        phone: meta?.phone,
-        threadId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  const decoded = decodeSendblueThreadId(threadId);
+  const contact = meta?.phone ?? decoded.contactNumber;
+  const from = decoded.fromNumber;
+  if (!contact || !from) {
+    console.warn("[altered-ops] read receipt skipped: missing numbers", {
+      threadId,
+      phone: meta?.phone,
     });
-  return task;
+    return Promise.resolve();
+  }
+  return sendMarkReadDirect({
+    contactNumber: contact,
+    fromNumber: from,
+    trace: meta?.trace,
+    source: meta?.source ?? "handler",
+  }).then(() => undefined);
 }
 
 export function createAlteredChat() {
@@ -130,7 +138,9 @@ export function createAlteredChat() {
         defaultFromNumber: env.SENDBLUE_FROM_NUMBER,
         webhookSecret: env.SENDBLUE_WEBHOOK_SECRET,
         allowedServices: ["iMessage", "SMS", "RCS"],
-        sendReadReceipts: true,
+        // We fire mark-read ourselves (webhook_early + timed). Adapter auto
+        // receipts are untimed and can race without adding coverage.
+        sendReadReceipts: false,
       }),
     },
     state: createState(),
@@ -153,9 +163,23 @@ export function createAlteredChat() {
     if (!text) return;
 
     const phone = resolveInboundPhone(env.SENDBLUE_FROM_NUMBER, message);
+    const messageHandle = messageHandleFromRaw(message);
+    const trace = createTrace({
+      messageHandle,
+      phone,
+      threadId: thread.id,
+      t0: handlerStarted,
+    });
+
+    traceLog(trace, "handler_start", {
+      textPreview: text.slice(0, 80),
+      skipped: context?.skipped?.length ?? 0,
+      queueTotal: context?.totalSinceLastHandler ?? 1,
+    });
     console.info("[altered-ops] inbound message", {
       phone,
       threadId: thread.id,
+      cid: trace.cid,
       textPreview: text.slice(0, 80),
       skipped: context?.skipped?.length ?? 0,
       burstTotal: context?.totalSinceLastHandler ?? 1,
@@ -167,23 +191,46 @@ export function createAlteredChat() {
       id: thread.id,
       post: (body) => thread.post(body),
       startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
-      sendReadReceipt: () => fireReadReceipt(adapter, thread.id, { phone }),
+      sendReadReceipt: () =>
+        fireReadReceipt(adapter, thread.id, {
+          phone,
+          trace,
+          source: "outbound_session",
+        }),
+      trace,
     });
 
-    // Receipt is fire-and-forget (also waitUntil-tracked at webhook). Do not
-    // serialize first-bubble send behind mark-read completing.
-    void fireReadReceipt(adapter, thread.id, { phone });
-    // Fast LLM ack (not canned). Redis status-ack claim skips duplicates when
-    // overlapping turns drain back-to-back on the same thread.
-    const ack = await generateFastAck(ctx, phone, text);
+    // Backup receipt (webhook_early is primary). Fire-and-forget.
+    void fireReadReceipt(adapter, thread.id, {
+      phone,
+      trace,
+      source: "handler_backup",
+    });
+
+    traceLog(trace, "fast_ack_start", {});
+    const ack = await generateFastAck(ctx, phone, text, trace);
+    traceLog(trace, "fast_ack_done", {
+      genMs: ack.ms,
+      model: ack.model,
+      timedOut: ack.timedOut,
+    });
+
     const sendStarted = Date.now();
+    traceLog(trace, "status_send_start", {});
     const sent = await outbound.send(ack.text, "status");
+    const sendMs = Date.now() - sendStarted;
+    traceLog(trace, "status_send_done", {
+      sendMs,
+      skipped: Boolean(sent.skipped),
+      parts: sent.parts,
+    });
     console.info("[altered-ops] fast ack sent", {
       phone,
       threadId: thread.id,
+      cid: trace.cid,
       model: ack.model,
       genMs: ack.ms,
-      sendMs: Date.now() - sendStarted,
+      sendMs,
       handlerMs: Date.now() - handlerStarted,
       timedOut: ack.timedOut,
       skipped: Boolean(sent.skipped),
@@ -200,16 +247,28 @@ export function createAlteredChat() {
         phone,
         text,
         outbound,
+        trace,
+      });
+      traceLog(trace, "turn_complete", {
+        replyLen: reply.length,
+        sends: outbound.sent.length,
+        totalMs: Date.now() - handlerStarted,
       });
       console.info("[altered-ops] turn complete", {
         phone,
+        cid: trace.cid,
         replyLen: reply.length,
         sends: outbound.sent.length,
         totalMs: Date.now() - handlerStarted,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[altered-ops] inbound handler failed", { phone, error: msg });
+      traceLog(trace, "turn_error", { error: msg });
+      console.error("[altered-ops] inbound handler failed", {
+        phone,
+        cid: trace.cid,
+        error: msg,
+      });
       try {
         await outbound.send(`Error handling message: ${msg}`.slice(0, 400));
       } catch {

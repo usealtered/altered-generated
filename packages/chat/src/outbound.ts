@@ -7,12 +7,15 @@ import {
   claimThreadStatusAck,
   withThreadSendLock,
 } from "./thread-lock";
+import type { TraceContext } from "./trace";
+import { traceLog } from "./trace";
 
 export type ThreadTransport = {
   id: string;
   post: (text: string) => Promise<unknown>;
   startTyping?: () => Promise<unknown>;
   sendReadReceipt?: () => Promise<unknown>;
+  trace?: TraceContext;
 };
 
 export type SendKind = "status" | "reply";
@@ -56,11 +59,25 @@ export function createOutboundSession(transport: ThreadTransport) {
         if (!part.trim()) continue;
         // Status acks must be near-instant: skip typing API round-trip.
         if (kind !== "status") await typing();
+        const postStarted = Date.now();
+        if (transport.trace && kind !== "status") {
+          traceLog(transport.trace, "outbound_send_start", {
+            kind,
+            chars: part.length,
+          });
+        }
         await transport.post(part);
+        if (transport.trace && kind !== "status") {
+          traceLog(transport.trace, "outbound_send_done", {
+            kind,
+            postMs: Date.now() - postStarted,
+            chars: part.length,
+          });
+        }
         sent.push(part);
         if (kind === "status") statusSent = true;
       }
-    });
+    }, transport.trace);
   }
 
   return {

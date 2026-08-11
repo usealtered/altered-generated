@@ -3,6 +3,7 @@ import { sanitizeImessageText, truncateForImessage } from "@altered/cursor-bridg
 import type { OperatorContext } from "./operator-context";
 import { chatAckModelId, createOpenRouter } from "./model";
 import { extractUsage, recordAiEvent } from "./observability";
+import type { TraceContext } from "./trace";
 
 const ACK_SYSTEM = `You are ALTERED's iMessage ops copilot acknowledging Riley's latest message.
 Write ONE short plain-text confirmation that you received it and are on it.
@@ -48,6 +49,7 @@ export async function generateFastAck(
   ctx: OperatorContext,
   phone: string,
   text: string,
+  _trace?: TraceContext,
 ): Promise<{ text: string; ms: number; model: string; timedOut: boolean }> {
   const started = Date.now();
   if (!ctx.env.OPENROUTER_API_KEY) {

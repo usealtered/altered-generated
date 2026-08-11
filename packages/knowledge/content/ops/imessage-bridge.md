@@ -10,10 +10,10 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 1. Riley texts `+13054098546` (allowlisted `+12368370221`)
 2. Sendblue webhook → `POST /webhooks/sendblue`
-3. **Read receipt immediately** (waitUntil-tracked) before Chat SDK handler lock / status sends
+3. **Read receipt immediately** via direct Sendblue `POST /api/mark-read` (no Chat SDK init), waitUntil-tracked, before any handler lock / DB / LLM
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
 5. Chat SDK **queue** concurrency (per-thread Redis lock; no mandatory burst debounce). Overlapping inbound drains with `context.skipped`.
-6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". Runs concurrently with read receipt; first bubble before subscribe/DB/main agent. Redis `status-ack:*` SET NX skips duplicates under overlap. Surface `ops_imessage_ack` in `ai_events`.
+6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". First bubble before subscribe/DB/main agent. Redis `status-ack:*` SET NX skips duplicates. Surface `ops_imessage_ack`.
 7. Main AI SDK `generateText` with full tools (`toolChoice: "required"` + `done`) - no raw assistant dumps. Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status). Code sanitizer strips em dashes/markdown.
 9. Per-thread outbound send lock (in-process + Redis SET NX) serializes replies vs background completion notices. Lock key is the canonical base64url Sendblue thread id.
@@ -21,14 +21,15 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 11. `prompt_cursor` resumes or auto-spawns a Cloud Agent by **workstream**
 12. Important facts go to keyed `memories` (Neon) + Redis + `knowledge/`
 13. Each LLM turn writes `ai_events`
+14. **Pipeline tracing:** every stage emits `[altered-ops:trace] {json}` with shared `cid` (= Sendblue `message_handle`). Includes `webhookAgeMs` (Sendblue `date_sent` → our receive), read-receipt `apiMs`, fast-ack, locks, main gen, outbound sends. Vercel query: `altered-ops:trace`.
 
 ## Concurrency model (actual)
 
 | Layer | Mechanism | Behavior |
 |---|---|---|
 | Chat SDK inbound | `concurrency: { strategy: "queue" }` + Redis state locks | Per-thread serialize handlers; no mandatory 700ms debounce; latest + skipped[] on drain |
-| Sendblue adapter (`#integration` fork) | `sendReadReceipts: true` fires mark-read before `processMessage` (not waitUntil-tracked) | Does **not** serialize per-thread itself; relies on Chat SDK locks. Webhook layer tracks receipt via waitUntil |
-| Our webhook | Early `fireReadReceipt` + `waitUntil` | Receipt survives overlapping turns / status sends |
+| Sendblue adapter (`#integration` fork) | `sendReadReceipts: false` (we own mark-read) | Chat SDK locks still serialize inbound handlers |
+| Our webhook | Direct `sendMarkReadDirect` + `waitUntil` before `chat.initialize()` | Mark-read not blocked by SDK cold start; timed `apiMs` in traces |
 | Our outbound | `withThreadSendLock(threadId)` in-process + Redis `send-lock:*` | Serializes `thread.post` and completion `sdk.messages.send` on the same canonical thread id |
 | Status pings | Redis `status-ack:*` SET NX (~12s) + fast LLM ack | At most one status bubble per thread per short window |
 | Cursor completions | Redis list + token debounce + `notify:drain:*` lock + QStash flush | Near-simultaneous finishes merge into one summarized iMessage |

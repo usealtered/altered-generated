@@ -10,6 +10,8 @@ import {
   setSoftDefaultAgentId,
 } from "./agents";
 import { createOpenRouter, chatAgentModelId } from "./model";
+import type { TraceContext } from "./trace";
+import { traceLog } from "./trace";
 import {
   createOperatorContext,
   type OperatorContext,
@@ -143,6 +145,7 @@ export async function handleOperatorMessage(input: {
   phone: string;
   text: string;
   outbound?: OutboundSession;
+  trace?: TraceContext;
 }): Promise<string> {
   const ctx = input.ctx ?? createOperatorContext();
   const phone = normalizePhone(input.phone);
@@ -202,6 +205,7 @@ export async function handleOperatorMessage(input: {
   const openrouter = createOpenRouter(ctx.env);
   const modelId = chatAgentModelId(ctx.env);
   const started = Date.now();
+  if (input.trace) traceLog(input.trace, "main_gen_start", { model: modelId });
 
   try {
     const result = await generateText({
@@ -240,13 +244,22 @@ export async function handleOperatorMessage(input: {
 
     const usage = extractUsage(result.usage);
     const toolsCalled = toolNamesFromSteps(result.steps);
+    const latencyMs = Date.now() - started;
+    if (input.trace) {
+      traceLog(input.trace, "main_gen_done", {
+        model: modelId,
+        genMs: latencyMs,
+        ok: true,
+        stepCount: Array.isArray(result.steps) ? result.steps.length : 0,
+      });
+    }
     await recordAiEvent(ctx, {
       surface: "ops_imessage",
       threadId: thread?.id,
       phone,
       model: modelId,
       ...usage,
-      latencyMs: Date.now() - started,
+      latencyMs,
       toolsCalled,
       ok: true,
       meta: {
@@ -275,12 +288,21 @@ export async function handleOperatorMessage(input: {
     return "Done.";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const latencyMs = Date.now() - started;
+    if (input.trace) {
+      traceLog(input.trace, "main_gen_done", {
+        model: modelId,
+        genMs: latencyMs,
+        ok: false,
+        error: msg,
+      });
+    }
     await recordAiEvent(ctx, {
       surface: "ops_imessage",
       threadId: thread?.id,
       phone,
       model: modelId,
-      latencyMs: Date.now() - started,
+      latencyMs,
       ok: false,
       error: msg,
     });
