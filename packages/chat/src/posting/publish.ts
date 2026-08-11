@@ -132,7 +132,10 @@ export async function publishApprovedPosts(
       continue;
     }
 
-    const useQueue = Boolean(ctx.env.ZERNIO_PROFILE_ID);
+    const useQueue =
+      Boolean(ctx.env.ZERNIO_PROFILE_ID) &&
+      ctx.env.POSTING_ENABLED?.trim().toLowerCase() !== "publish-now" &&
+      process.env.POSTING_USE_ZERNIO_QUEUE?.trim().toLowerCase() === "true";
     const result = await zernioCreatePost(ctx.env, {
       content: idea.content,
       platforms: targets,
