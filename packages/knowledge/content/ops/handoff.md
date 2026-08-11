@@ -2,39 +2,32 @@
 title: Handoff for next Cloud Agent chat
 ---
 
-# Handoff — restart without loss
+# Handoff - restart without loss
 
-Last updated: 2026-08-10 (prior long chat winding down).
+Last updated: 2026-08-10 (pre-test observability shipped; Riley smoke-testing iMessage).
 
-## Already on `main`
+## Already on `main` / shipping
 
-- Turborepo: `apps/api` (Hono/oRPC + Sendblue/QStash), `apps/web` (early-access), packages.
-- iMessage ops: Chat SDK + Sendblue; AI SDK tools via OpenRouter (no slash commands).
-- Dynamic agents: `cursor_agents` + `dev_tasks` (migration `0002_agents_tasks.sql`).
-- Durable memory: `memories` + Redis + `knowledge/`.
-- Checkout: `PRIMARY_CHECKOUT_URL`; deposit from knowledge ($99–$249 band, placeholder $149).
-- `vercel.json` builds/functions conflict fixed earlier.
+- Turborepo API + web; iMessage ops via Sendblue + AI SDK tools (OpenRouter).
+- Dynamic agents: `cursor_agents` + `dev_tasks`.
+- API deploy: bundled Vercel Build Output (`apps/api` `build:vercel`) — Web Handler API.
+- Memory: **keyed facts** in `memories` (key required). Tight preamble (≤6 facts, ≤3 tasks, ~6 chat turns).
+- Observability: `ai_events` + daily AI token/cost rollups; `lead_events` funnel spine.
+- Migration through `0003_observability.sql`.
+- Roadmap (post-test): `knowledge/ops/memory-and-metrics.md`.
 
-## Prefs (read first)
+## Prefs
 
-`knowledge/ops/preferences.md` + `AGENTS.md`:
+`knowledge/ops/preferences.md` + `AGENTS.md`: ship to **main**; Vercel token **only** `api-generated`; ask in chat/iMessage.
 
-- Push/merge to **main**; Riley doesn’t manage PRs/branches.
-- Vercel token **only** for `api-generated`.
-- Ask in chat/iMessage, not via repo questionnaires.
-- Dynamic workstreams, not one forever agent env id.
+## Still open
 
-## Still open (persist as `dev_tasks` when DB is up)
-
-1. Confirm `VERCEL_TOKEN` in new chat shell → pull envs for **api-generated only**.
-2. `pnpm db:migrate` (0000–0002) on real `DATABASE_URL`.
-3. Deploy API/web to domains; Sendblue webhook → `https://generated.api.usealtered.com/webhooks/sendblue`.
-4. Smoke-test iMessage from `+12368370221`.
-5. Lock deposit amount; set `PRIMARY_CHECKOUT_URL` when Stripe link ready.
+1. Riley re-test iMessage after Sendblue `waitUntil`/await fix (webhook was 200’ing then freezing before reply).
+2. Lock deposit + `PRIMARY_CHECKOUT_URL`.
+3. Post-test: invoice-accurate costs, FTS recall, sales surface split — see `memory-and-metrics.md`.
 
 ## First moves in a new chat
 
-1. Read this file + preferences.
-2. Check secrets in shell (don’t print values).
-3. Migrate DB; upsert open items into `dev_tasks`.
-4. Continue shipping to `main`.
+1. Read this + `preferences.md` + `memory-and-metrics.md`.
+2. `pnpm db:migrate` if needed; check `/health`.
+3. Continue shipping to `main`.

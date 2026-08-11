@@ -3,9 +3,15 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { Chat } from "chat";
 import { createSendblueAdapter } from "chat-adapter-sendblue";
 import { getServerEnv, normalizePhone } from "@altered/env";
+import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 
 export type AlteredChat = Chat;
+
+type SendblueAdapterLike = {
+  sendReadReceipt?: (threadId: string) => Promise<unknown>;
+  markRead?: (threadId: string) => Promise<unknown>;
+};
 
 function createState() {
   const env = getServerEnv();
@@ -16,6 +22,36 @@ function createState() {
     });
   }
   return createMemoryState();
+}
+
+function resolveInboundPhone(
+  envFromNumber: string | undefined,
+  message: {
+    author?: { userId?: string };
+    raw?: unknown;
+  },
+) {
+  // Prefer contact `number` from Sendblue payload; adapter author.userId uses
+  // from_number which can be the agent line on some inbound shapes.
+  const agentLine = normalizePhone(envFromNumber ?? "");
+  const raw =
+    message.raw && typeof message.raw === "object"
+      ? (message.raw as {
+          number?: string;
+          from_number?: string;
+          to_number?: string;
+        })
+      : undefined;
+  const candidates = [
+    raw?.number,
+    message.author?.userId,
+    raw?.from_number,
+    raw?.to_number,
+  ]
+    .filter((v): v is string => Boolean(v))
+    .map((v) => normalizePhone(v))
+    .filter((v) => v && v !== agentLine);
+  return candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
 }
 
 export function createAlteredChat() {
@@ -29,6 +65,8 @@ export function createAlteredChat() {
         defaultFromNumber: env.SENDBLUE_FROM_NUMBER,
         webhookSecret: env.SENDBLUE_WEBHOOK_SECRET,
         allowedServices: ["iMessage", "SMS", "RCS"],
+        // Fork: auto read-receipt on inbound before message handlers run.
+        sendReadReceipts: true,
       }),
     },
     state: createState(),
@@ -46,45 +84,57 @@ export function createAlteredChat() {
     message: {
       text?: string | null;
       author?: { userId?: string };
-      raw?: { number?: string; from_number?: string; to_number?: string };
+      raw?: unknown;
     },
   ) => {
     const text = message.text?.trim();
     if (!text) return;
-    // Prefer contact `number` from Sendblue payload; adapter author.userId uses
-    // from_number which can be the agent line on some inbound shapes.
-    const agentLine = normalizePhone(env.SENDBLUE_FROM_NUMBER ?? "");
-    const candidates = [
-      message.raw?.number,
-      message.author?.userId,
-      message.raw?.from_number,
-      message.raw?.to_number,
-    ]
-      .filter((v): v is string => Boolean(v))
-      .map((v) => normalizePhone(v))
-      .filter((v) => v && v !== agentLine);
-    const phone = candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
+
+    const phone = resolveInboundPhone(env.SENDBLUE_FROM_NUMBER, message);
     console.info("[altered-ops] inbound message", {
       phone,
       threadId: thread.id,
       textPreview: text.slice(0, 80),
     });
+
+    const adapter = chat.getAdapter("sendblue") as SendblueAdapterLike | undefined;
+    const sendReadReceipt = async () => {
+      if (adapter?.sendReadReceipt) {
+        await adapter.sendReadReceipt(thread.id);
+        return;
+      }
+      await adapter?.markRead?.(thread.id);
+    };
+
+    // Read receipt first, before any LLM / tool work.
+    await sendReadReceipt().catch(() => undefined);
+    await thread.subscribe();
+
+    const outbound = createOutboundSession({
+      id: thread.id,
+      post: (body) => thread.post(body),
+      startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
+      sendReadReceipt,
+    });
+
     try {
-      await thread.subscribe();
-      await thread.startTyping?.();
       const reply = await handleOperatorMessage({
         ctx,
         chatThreadId: thread.id,
         phone,
         text,
+        outbound,
       });
-      await thread.post(reply);
-      console.info("[altered-ops] reply posted", { phone, replyLen: reply.length });
+      console.info("[altered-ops] turn complete", {
+        phone,
+        replyLen: reply.length,
+        sends: outbound.sent.length,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[altered-ops] inbound handler failed", { phone, error: msg });
       try {
-        await thread.post(`Error handling message: ${msg}`.slice(0, 400));
+        await outbound.send(`Error handling message: ${msg}`.slice(0, 400));
       } catch {
         /* ignore secondary send failure */
       }

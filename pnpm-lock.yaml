@@ -174,8 +174,8 @@ importers:
         specifier: ^4.27.0
         version: 4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76)
       chat-adapter-sendblue:
-        specifier: ^0.2.0
-        version: 0.2.0(chat@4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76))
+        specifier: github:inducingchaos/chat-adapter-sendblue#integration
+        version: https://codeload.github.com/inducingchaos/chat-adapter-sendblue/tar.gz/dc9e9a95887dfb478c2941dd23b4aadf106a0d7b(chat@4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76))
       drizzle-orm:
         specifier: ^0.44.4
         version: 0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.0)(@upstash/redis@1.38.2)
@@ -211,6 +211,9 @@ importers:
       '@types/node':
         specifier: ^22.17.0
         version: 22.20.1
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.12
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1584,8 +1587,9 @@ packages:
   character-entities@2.0.2:
     resolution: {integrity: sha512-shx7oQ0Awen/BRIdkjkvz54PnEEI/EjwXDSIZp86/KKdbafHh1Df/RYGBhn4hbe2+uKC9FnT5UCEdyPz3ai9hQ==}
 
-  chat-adapter-sendblue@0.2.0:
-    resolution: {integrity: sha512-JKqRa5KyoBsndRrq2LuGhob1uCdO1goWAbqaSLCld3KE9q288CnEo999GdWuDVWa9yqt1uf5F9/Oe3iFkSrW2w==}
+  chat-adapter-sendblue@https://codeload.github.com/inducingchaos/chat-adapter-sendblue/tar.gz/dc9e9a95887dfb478c2941dd23b4aadf106a0d7b:
+    resolution: {tarball: https://codeload.github.com/inducingchaos/chat-adapter-sendblue/tar.gz/dc9e9a95887dfb478c2941dd23b4aadf106a0d7b}
+    version: 0.2.0
     peerDependencies:
       chat: '>=4.0.0'
 
@@ -3215,7 +3219,7 @@ snapshots:
 
   character-entities@2.0.2: {}
 
-  chat-adapter-sendblue@0.2.0(chat@4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76)):
+  chat-adapter-sendblue@https://codeload.github.com/inducingchaos/chat-adapter-sendblue/tar.gz/dc9e9a95887dfb478c2941dd23b4aadf106a0d7b(chat@4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76)):
     dependencies:
       chat: 4.37.0(ai@6.0.246(zod@3.25.76))(zod@3.25.76)
       sendblue: 3.10.1

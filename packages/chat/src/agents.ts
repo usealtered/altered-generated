@@ -3,7 +3,7 @@ import { cursorAgents, settings } from "@altered/db";
 import type { OperatorContext } from "./operator-context";
 
 export const ACTIVE_AGENT_SETTING_KEY = "active_agent_id";
-/** Legacy key — still read for backward compatibility. */
+/** Legacy key - still read for backward compatibility. */
 export const LEGACY_OPERATING_AGENT_SETTING_KEY = "operating_agent_id";
 
 export function slugifyWorkstream(input: string): string {
@@ -196,7 +196,7 @@ export async function resolveAgentId(
   return { agentId: undefined, source: "none", workstream: opts.workstream };
 }
 
-/** @deprecated Use resolveAgentId — kept for older imports. */
+/** @deprecated Use resolveAgentId - kept for older imports. */
 export async function resolveOperatingAgentId(
   ctx: OperatorContext,
   phone: string,

@@ -190,10 +190,77 @@ export function createCursorClient(apiKey: string) {
   return new CursorClient(apiKey);
 }
 
+/** Collapse all whitespace to single spaces (status lines, titles). */
+export function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Truncate for iMessage while preserving paragraph breaks (`\n\n`).
+ * Only collapses horizontal runs of spaces/tabs; never flattens newlines into spaces.
+ */
 export function truncateForImessage(text: string, max = 1400): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+  const cleaned = text
+    .replace(/\r\n/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ \n/g, "\n")
+    .replace(/\n /g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (cleaned.length <= max) return cleaned;
-  return `${cleaned.slice(0, max - 1)}…`;
+  return `${cleaned.slice(0, max - 1)}...`;
+}
+
+function hardChunk(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf("\n", max);
+    if (cut < max * 0.5) cut = rest.lastIndexOf(" ", max);
+    if (cut < max * 0.5) cut = max;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts.filter(Boolean);
+}
+
+/**
+ * Split outbound iMessage text into multiple sends on natural `\n\n` breaks.
+ * Tiny adjacent paragraphs may stay together; long ones become separate bubbles.
+ */
+export function splitImessageParts(text: string, max = 1400): string[] {
+  const cleaned = truncateForImessage(text, Number.MAX_SAFE_INTEGER);
+  if (!cleaned) return [];
+
+  const paragraphs = cleaned
+    .split(/\n\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length <= 1) {
+    return hardChunk(cleaned, max);
+  }
+
+  const parts: string[] = [];
+  let buf = "";
+  for (const paragraph of paragraphs) {
+    if (!buf) {
+      buf = paragraph;
+      continue;
+    }
+    const combined = `${buf}\n\n${paragraph}`;
+    const bothSubstantial = buf.length >= 40 && paragraph.length >= 20;
+    if (bothSubstantial || combined.length > max) {
+      parts.push(...hardChunk(buf, max));
+      buf = paragraph;
+    } else {
+      buf = combined;
+    }
+  }
+  if (buf) parts.push(...hardChunk(buf, max));
+  return parts;
 }
 
 export function formatRunStatus(run: CursorRun): string {
@@ -201,6 +268,8 @@ export function formatRunStatus(run: CursorRun): string {
   if (run.durationMs) parts.push(`duration=${Math.round(run.durationMs / 1000)}s`);
   const pr = run.git?.branches?.find((b) => b.prUrl)?.prUrl;
   if (pr) parts.push(`pr=${pr}`);
-  if (run.result) parts.push(`result=${truncateForImessage(run.result, 600)}`);
+  if (run.result) {
+    parts.push(`result=${collapseWhitespace(truncateForImessage(run.result, 600))}`);
+  }
   return parts.join(" | ");
 }

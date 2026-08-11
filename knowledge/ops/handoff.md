@@ -2,7 +2,7 @@
 title: Handoff for next Cloud Agent chat
 ---
 
-# Handoff — restart without loss
+# Handoff - restart without loss
 
 Last updated: 2026-08-10 (pre-test observability shipped; Riley smoke-testing iMessage).
 

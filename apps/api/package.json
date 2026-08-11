@@ -8,6 +8,7 @@
     "build": "tsup src/app.ts src/serve.ts --format esm --dts --out-dir dist",
     "build:vercel": "node ./scripts/build-vercel.mjs",
     "start": "node dist/serve.js",
+    "test": "tsx --test src/webhook-waituntil.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
   },

@@ -16,6 +16,7 @@ import {
   createOperatorContext,
   type OperatorContext,
 } from "./operator-context";
+import type { OutboundSession } from "./outbound";
 import {
   extractUsage,
   recordAiEvent,
@@ -27,7 +28,7 @@ import {
   loadMemoryPreamble,
 } from "./tools";
 
-/** Optional env bootstrap only — not a hard singleton agent. */
+/** Optional env bootstrap only - not a hard singleton agent. */
 async function ensureSoftDefaultAgentSeed(ctx: OperatorContext) {
   const fromEnv = ctx.env.CURSOR_OPERATING_AGENT_ID;
   if (!fromEnv) return;
@@ -75,7 +76,7 @@ async function recentHistory(
   ctx: OperatorContext,
   phone: string,
 ): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
-  // Keep short recent turns only — durable facts live in keyed memories.
+  // Keep short recent turns only - durable facts live in keyed memories.
   const fromRedis =
     (await ctx.redis?.lrange(`chat:history:${phone}`, 0, 5)) ?? [];
   const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -95,34 +96,54 @@ async function recentHistory(
 }
 
 const SYSTEM = `You are ALTERED's operator copilot over iMessage.
-Product: ALTERED — Knowledge Orchestration Infrastructure SaaS.
-Near-term goal: early-access reservation deposits (offer band $99–$249, amount still being finalized).
-You talk to Riley (founder/operator). Keep replies short and iMessage-friendly (plain text, no markdown tables).
-Never invent slash commands. Use tools when you need status, knowledge, Cursor work, leads, metrics, checkout link, durable memory, or DB tasks.
+Product: ALTERED - Knowledge Orchestration Infrastructure SaaS.
+Near-term goal: early-access reservation deposits (offer band $99-$249, amount still being finalized).
+You talk to Riley (founder/operator scaling toward $1B). Write with weight and intention: serious, brutalist, precise, critical, actionable, forward-moving. Hormozi-style directness when it fits. Not fluffy. Not playful.
 
-Cursor agents are DYNAMIC — do not assume a single env agent id.
-- Group related work into one workstream → one Cloud Agent chat (prompt_cursor with the same workstream).
+FORMATTING (hard rules):
+- Plain text only. No markdown asterisks, bold, italics, code fences, or markdown bullets.
+- Structure with \\n\\n paragraph breaks, and/or multiple send_message calls.
+- Never use em dashes. Use hyphens (-) instead.
+- Full sentences with periods.
+- Keep each send_message tight and iMessage-readable.
+
+MULTI-SEND FLOW (hard rules):
+- Every user-visible reply goes through the send_message tool. Do not rely on a single final assistant blob.
+- When you need any other tool: (1) send_message a short status first (e.g. "Checking that now."), token-limited, (2) run the tools, (3) start_typing, (4) send_message the final answer (split across sends on natural paragraph breaks when useful).
+- Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
+- You may send multiple send_message calls in one turn.
+
+Never invent slash commands. Use tools for status, knowledge, Cursor work, leads, metrics, checkout link, durable memory, or DB tasks.
+
+Cursor agents are DYNAMIC - do not assume a single env agent id.
+- Group related work into one workstream -> one Cloud Agent chat (prompt_cursor with the same workstream).
 - Start a new workstream/agent for unrelated tasks.
 - Track open development work with upsert_dev_task / list_dev_tasks so chats can restart without loss.
 - Prefer knowledge/ops/preferences.md + AGENTS.md for Riley's standing prefs (Git: ship to main; he does not manage PRs/branches).
 
 Default: if Riley asks you to build/fix/ship/change the repo, call prompt_cursor with a workstream.
 If he asks a factual question about the offer/ops/product, search_knowledge first.
-Persist important decisions with save_memory — KEY REQUIRED (offer.deposit, ops.decision.*, prefs.*).
+Persist important decisions with save_memory - KEY REQUIRED (offer.deposit, ops.decision.*, prefs.*).
 Do not dump narrative into always-on context; use recall_memories / search_knowledge when needed.
-Do not claim Stripe Checkout API is wired — use get_checkout_link for PRIMARY_CHECKOUT_URL when set.`;
+Do not claim Stripe Checkout API is wired - use get_checkout_link for PRIMARY_CHECKOUT_URL when set.`;
 
 export async function handleOperatorMessage(input: {
   ctx?: OperatorContext;
   chatThreadId: string;
   phone: string;
   text: string;
+  outbound?: OutboundSession;
 }): Promise<string> {
   const ctx = input.ctx ?? createOperatorContext();
   const phone = normalizePhone(input.phone);
   const allowlist = parseAllowlist(ctx.env.OPERATOR_PHONE_ALLOWLIST);
   if (!isOperatorPhone(phone, allowlist)) {
-    return "Unauthorized phone for ALTERED ops bridge.";
+    const reply = "Unauthorized phone for ALTERED ops bridge.";
+    if (input.outbound) {
+      await input.outbound.send(reply);
+      return input.outbound.joinedTranscript() || reply;
+    }
+    return reply;
   }
 
   await ensureSoftDefaultAgentSeed(ctx);
@@ -132,7 +153,12 @@ export async function handleOperatorMessage(input: {
 
   if (!ctx.env.OPENROUTER_API_KEY) {
     const reply =
-      "OPENROUTER_API_KEY missing — AI tool calling offline. Add it on Vercel and retext.";
+      "OPENROUTER_API_KEY missing - AI tool calling offline. Add it on Vercel and retext.";
+    if (input.outbound) {
+      await input.outbound.send(reply);
+      await saveMessage(ctx, thread?.id, "outbound", input.outbound.joinedTranscript());
+      return input.outbound.joinedTranscript();
+    }
     await saveMessage(ctx, thread?.id, "outbound", reply);
     return reply;
   }
@@ -143,6 +169,7 @@ export async function handleOperatorMessage(input: {
   const tools = createOperatorTools(ctx, {
     phone,
     threadDbId: thread?.id,
+    outbound: input.outbound,
   });
 
   const openrouter = createOpenRouter(ctx.env);
@@ -161,7 +188,7 @@ export async function handleOperatorMessage(input: {
       ].join("\n\n"),
       messages: [...history, { role: "user", content: input.text }],
       tools,
-      stopWhen: stepCountIs(6),
+      stopWhen: stepCountIs(8),
       temperature: 0.3,
     });
 
@@ -179,11 +206,28 @@ export async function handleOperatorMessage(input: {
       meta: { stepCount: Array.isArray(result.steps) ? result.steps.length : 0 },
     });
 
-    const reply = truncateForImessage(
+    const leftover =
       result.text?.trim() ||
-        "Done — check tool results / Cursor status if nothing else came back.",
-    );
+      (!input.outbound?.hasSent
+        ? "Done. Check tool results or Cursor status if nothing else came back."
+        : "");
 
+    if (input.outbound) {
+      if (leftover) await input.outbound.flushText(leftover);
+      const reply = input.outbound.joinedTranscript() || leftover;
+      await saveMessage(ctx, thread?.id, "outbound", reply);
+      await ctx.redis?.lpush(
+        `chat:history:${phone}`,
+        JSON.stringify({ at: Date.now(), in: input.text, out: reply }),
+      );
+      await ctx.redis?.ltrim(`chat:history:${phone}`, 0, 49);
+      return reply;
+    }
+
+    const reply = truncateForImessage(
+      leftover ||
+        "Done. Check tool results or Cursor status if nothing else came back.",
+    );
     await saveMessage(ctx, thread?.id, "outbound", reply);
     await ctx.redis?.lpush(
       `chat:history:${phone}`,
@@ -203,6 +247,12 @@ export async function handleOperatorMessage(input: {
       error: msg,
     });
     const reply = truncateForImessage(`Error: ${msg}`);
+    if (input.outbound) {
+      await input.outbound.send(reply);
+      const out = input.outbound.joinedTranscript() || reply;
+      await saveMessage(ctx, thread?.id, "outbound", out);
+      return out;
+    }
     await saveMessage(ctx, thread?.id, "outbound", reply);
     return reply;
   }

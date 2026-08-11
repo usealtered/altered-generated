@@ -6,7 +6,7 @@ function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-/** Rough USD per 1M tokens — refine from OpenRouter invoices over time. */
+/** Rough USD per 1M tokens - refine from OpenRouter invoices over time. */
 const RATE_TABLE: Array<{ match: RegExp; inputPerM: number; outputPerM: number }> = [
   { match: /claude-opus|opus-4/i, inputPerM: 15, outputPerM: 75 },
   { match: /claude-sonnet|sonnet/i, inputPerM: 3, outputPerM: 15 },

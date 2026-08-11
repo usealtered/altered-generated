@@ -62,24 +62,20 @@ app.post("/webhooks/sendblue", async (c) => {
   if (!handle) {
     return c.json({ error: "sendblue adapter not mounted" }, 500);
   }
-  // Chat SDK / Sendblue fires processMessage without awaiting it.
-  // Drain those tasks before returning so Vercel can't freeze the isolate
-  // after a fast 200 (which looked like: webhook OK, no typing/read/reply).
-  const pending: Promise<unknown>[] = [];
-  const response = await handle(c.req.raw, {
+  // ACK Sendblue immediately. Chat SDK processMessage continues via waitUntil
+  // so Vercel keeps the isolate alive for LLM/tools/outbound sends.
+  return handle(c.req.raw, {
     waitUntil: (task) => {
-      pending.push(Promise.resolve(task));
       try {
         waitUntil(task);
       } catch {
-        /* waitUntil may be unavailable outside Vercel request context */
+        // Outside Vercel request context, fall back to detached promise.
+        void Promise.resolve(task).catch((err) => {
+          console.error("[altered-ops] sendblue background task failed", err);
+        });
       }
     },
   });
-  if (pending.length > 0) {
-    await Promise.allSettled(pending);
-  }
-  return response;
 });
 
 async function verifyQstash(req: Request) {

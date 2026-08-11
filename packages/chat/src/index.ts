@@ -3,6 +3,11 @@ export * from "./operator-context";
 export * from "./bot";
 export * from "./offer";
 export * from "./model";
+export {
+  createOutboundSession,
+  type OutboundSession,
+  type ThreadTransport,
+} from "./outbound";
 export { createOperatorTools, loadMemoryPreamble } from "./tools";
 export {
   estimateCostMicros,

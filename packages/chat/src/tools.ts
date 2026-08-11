@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { desc, eq, or, and, isNotNull } from "drizzle-orm";
 import {
   CursorApiError,
+  collapseWhitespace,
   formatRunStatus,
   truncateForImessage,
 } from "@altered/cursor-bridge";
@@ -18,6 +19,7 @@ import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { OperatorContext } from "./operator-context";
+import type { OutboundSession } from "./outbound";
 import { depositLabel, resolveDepositAmountCents } from "./offer";
 import {
   findActiveAgentForWorkstream,
@@ -87,7 +89,31 @@ async function getChunks(root: string) {
 export type SessionRefs = {
   phone: string;
   threadDbId?: string;
+  outbound?: OutboundSession;
 };
+
+const MESSAGING_TOOLS = new Set(["send_message", "start_typing"]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function wrapToolsForOutbound<T extends Record<string, any>>(
+  tools: T,
+  outbound?: OutboundSession,
+): T {
+  if (!outbound) return tools;
+  const wrapped = { ...tools };
+  for (const [name, def] of Object.entries(tools)) {
+    if (MESSAGING_TOOLS.has(name) || typeof def?.execute !== "function") continue;
+    const original = def.execute;
+    wrapped[name as keyof T] = {
+      ...def,
+      execute: async (input: unknown, options: unknown) => {
+        await outbound.ensureStatus("Checking that now.");
+        return original(input, options);
+      },
+    };
+  }
+  return wrapped;
+}
 
 async function bindThreadAgent(
   ctx: OperatorContext,
@@ -105,7 +131,35 @@ async function bindThreadAgent(
 }
 
 export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) {
-  return {
+  const tools = {
+    send_message: tool({
+      description:
+        "Send one plain-text iMessage bubble to Riley now. Call multiple times for multi-part replies. Use kind=status for a short ack before other tools (max ~80 chars). Use kind=reply for answers. Prefer \\n\\n inside a bubble or multiple calls for structure. No markdown. No em dashes.",
+      inputSchema: z.object({
+        text: z.string().min(1).max(1400),
+        kind: z.enum(["status", "reply"]).optional().default("reply"),
+      }),
+      execute: async ({ text, kind }) => {
+        if (!session.outbound) {
+          return { ok: false, error: "No outbound transport bound" };
+        }
+        return session.outbound.send(text, kind ?? "reply");
+      },
+    }),
+
+    start_typing: tool({
+      description:
+        "Show the iMessage typing indicator shortly before a pending send_message. Call after tool work finishes and before the final reply.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!session.outbound) {
+          return { ok: false, error: "No outbound transport bound" };
+        }
+        await session.outbound.typing();
+        return { ok: true };
+      },
+    }),
+
     get_cursor_status: tool({
       description:
         "Get status of a Cursor cloud agent. Pass agentId, or omit to use the soft-default / workstream agent.",
@@ -357,14 +411,14 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             prompt: [
               "[via iMessage operator bridge]",
               `Workstream: ${workstream}`,
-              "Repo: altered-generated — ALTERED early-access deposit engine.",
+              "Repo: altered-generated - ALTERED early-access deposit engine.",
               "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
               "",
               task,
             ].join("\n"),
             repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
             startingRef: ctx.env.CURSOR_DEFAULT_REF,
-            name: `ws:${workstream} — ${task.slice(0, 48)}`,
+            name: `ws:${workstream} - ${collapseWhitespace(task).slice(0, 48)}`,
             autoCreatePR: false,
             workOnCurrentBranch: true,
           });
@@ -383,7 +437,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           let taskId: string | undefined;
           if (trackTask && ctx.db) {
             const row = await upsertDevTask(ctx, {
-              title: taskTitle ?? truncateForImessage(task, 80),
+              title: taskTitle ?? collapseWhitespace(task).slice(0, 80),
               description: task,
               status: "in_progress",
               workstream,
@@ -432,10 +486,10 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         }
 
         const enriched = [
-          "[via iMessage operator bridge — AI tools]",
+          "[via iMessage operator bridge - AI tools]",
           `From: ${session.phone}`,
           `Workstream: ${workstream}`,
-          "Goal: early-access reservation deposits ($99–$249 band) for ALTERED.",
+          "Goal: early-access reservation deposits ($99-$249 band) for ALTERED.",
           "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories + DB tasks.",
           "Git: ship to main (Riley does not manage PRs/branches). Prefer commit+push to main; if you used a branch/PR, merge it yourself when done.",
           "",
@@ -455,7 +509,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           let taskId: string | undefined;
           if (trackTask && ctx.db) {
             const row = await upsertDevTask(ctx, {
-              title: taskTitle ?? truncateForImessage(task, 80),
+              title: taskTitle ?? collapseWhitespace(task).slice(0, 80),
               description: task,
               status: "in_progress",
               workstream,
@@ -529,7 +583,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
                 agentId,
                 jobId: job?.id,
                 workstream,
-                note: "Agent busy — queued retry.",
+                note: "Agent busy - queued retry.",
               };
             }
             return { error: "Agent busy; retry shortly.", agentId };
@@ -560,14 +614,14 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           prompt: [
             "[via iMessage operator bridge]",
             `Workstream: ${workstream}`,
-            "Repo: altered-generated — ALTERED early-access deposit engine.",
+            "Repo: altered-generated - ALTERED early-access deposit engine.",
             "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
             "",
             task,
           ].join("\n"),
           repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
           startingRef: ctx.env.CURSOR_DEFAULT_REF,
-          name: name ?? `ws:${workstream} — ${task.slice(0, 48)}`,
+          name: name ?? `ws:${workstream} - ${collapseWhitespace(task).slice(0, 48)}`,
           autoCreatePR: false,
           workOnCurrentBranch: true,
         });
@@ -587,7 +641,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         let taskId: string | undefined;
         if (trackTask && ctx.db) {
           const row = await upsertDevTask(ctx, {
-            title: truncateForImessage(task, 80),
+            title: collapseWhitespace(task).slice(0, 80),
             description: task,
             status: "in_progress",
             workstream,
@@ -810,7 +864,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     save_memory: tool({
       description:
-        "Persist a durable KEYED fact (offer terms, prefs, decisions). Key required — use namespaces like offer.deposit, ops.decision.*, prefs.*, lead.stage.*.",
+        "Persist a durable KEYED fact (offer terms, prefs, decisions). Key required - use namespaces like offer.deposit, ops.decision.*, prefs.*, lead.stage.*.",
       inputSchema: z.object({
         content: z.string().min(1),
         key: z
@@ -927,6 +981,8 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
       },
     }),
   };
+
+  return wrapToolsForOutbound(tools, session.outbound);
 }
 
 async function mirrorMemoryRedis(
@@ -939,7 +995,7 @@ async function mirrorMemoryRedis(
 
 /**
  * Tight always-on context: soft-default + ≤3 open tasks + ≤6 keyed facts.
- * Narrative notes stay out of preamble — use recall_memories / search_knowledge.
+ * Narrative notes stay out of preamble - use recall_memories / search_knowledge.
  */
 export async function loadMemoryPreamble(
   ctx: OperatorContext,
