@@ -37,7 +37,19 @@ Riley: "Maybe it was fixed…" → "Well this block" → "Is the concurrency iss
 
 Four full sequential turns. Root cause: **not** send-side `send-lock`. Chat SDK inbound lock / missing cross-handler coalesce. At the time: `queue` (or later `burst`+detach) released after fast-ack so each text got its own Sonnet. Separate from Redis drain used for Cursor completion notices.
 
-**Fix path:** `concurrency.burst debounceMs=1500` + Redis-backed `scheduleCoalescedMainGen` (`MAIN_GEN_COALESCE_MS=2000`, keys `mgc:parts|epoch|gen|inflight:*`). Expect one `main_gen_coalesce_flush` with `partCount≥N` for an N-message quiet-window burst. Mid-Sonnet follow-ups abort via Redis gen poll and re-merge inflight texts.
+**Fix path:** `concurrency.burst debounceMs=1500` + Redis-backed `scheduleCoalescedMainGen` (`MAIN_GEN_COALESCE_MS=2000`, keys `mgc:parts|epoch|gen|inflight:*`). Mid-Sonnet follow-ups abort via Redis gen poll and re-merge inflight texts.
+
+### BURST4 1786420281 (after — fixed)
+
+| Event | detail |
+|---|---|
+| Chat SDK | A–C `message-dequeued skippedCount=2 totalSinceLastHandler=3` |
+| coalesce schedule | C partCount=1 (already joined A+B+C); D partCount=2 |
+| `main_gen_coalesce_flush` | **partCount=2**, preview starts with `BURST4 A…` |
+| `main_gen_start` | **once** (cid burst4-D) |
+| `turn_complete` | partCount=2, sends=1 |
+
+One Sonnet turn for the 4-message burst (vs four before).
 
 ## Prior: webhook-early fast-ack (OV3)
 
