@@ -8,7 +8,15 @@ Read-only extract from `usealtered/altered` (2026-08-11). Sources: `.context/str
 
 S7 note: 6 months is program duration, not a transformation window; marketing may reference shorter outcome horizons (90 days is valid marketing framing).
 
-## Candidates (pick one for hero)
+## LOCKED (2026-08-11) — live on landing
+
+Riley-approved final blend (do not paraphrase):
+
+> Ninety days from now, the feature you've been circling finally ships - because you stopped re-running the same procrastination loop you already solved.
+
+Surfaces: `https://generated.usealtered.com/early-access` and `https://generated.api.usealtered.com/reserve`.
+
+## Candidates (archive)
 
 1. **Ninety days from now, pressure pivots stop yanking you off the goal you already settled - you stay locked until it ships.**
    - Rationale: S2 root problem + locked "pressure pivots" word bank + S25 close ("locked on the goal until it ships").
@@ -21,7 +29,7 @@ S7 note: 6 months is program duration, not a transformation window; marketing ma
 
 ## Locked anchors (do not drift)
 
-- Tagline: Never lose your best thinking again. (S21)
+- Tagline: Never lose your best thinking again. (S21) — secondary, not the current hero.
 - Master statement: always-on iMessage agent; eliminates pressure pivots, redundant thinking, anti-patterns; locked on the goal until it ships. (S35)
 - ICP: detail-obsessed founders / technical founders (S3/S35)
 - No em dashes in brand copy - hyphens only.

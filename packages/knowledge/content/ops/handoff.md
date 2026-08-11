@@ -4,7 +4,7 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (HITL posting pipeline + Zernio).
+Last updated: 2026-08-11 (locked 90-day hero headline + HITL posting pipeline).
 
 ## HEAD on main
 
@@ -15,13 +15,16 @@ See latest `main`.
 - **$100** reservation deposit → credits toward **$499** (net **$399**)
 - Never say pre-sale/presale in copy
 - Discrepancies: `knowledge/ops/marketing-discrepancies.md`
+- **Hero headline (exact, do not paraphrase):** Ninety days from now, the feature you've been circling finally ships - because you stopped re-running the same procrastination loop you already solved.
+- Subhead: Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.
+- Doc: `knowledge/offers/early-access-deposit.md`
 
 ### Live surfaces
 
 | Surface | Status |
 |---|---|
 | API money page | `https://generated.api.usealtered.com/reserve` |
-| Site `generated.usealtered.com` | **DEPLOYMENT_NOT_FOUND** — needs web deploy |
+| Site | `https://generated.usealtered.com/early-access` (root redirects here) |
 | `PRIMARY_CHECKOUT_URL` | **EMPTY** — needs Stripe Payment Link for $100 |
 | iMessage sales mode | Non-allowlisted → `handleSalesMessage` |
 | Ops mode | Allowlisted (Riley) unchanged |
@@ -56,8 +59,7 @@ See latest `main`.
 
 ### Koa landing copy (sales-funnel-build)
 
-- 3x 90-day win hero candidates extracted from `usealtered/altered` (read-only) → `knowledge/sales/koa-90-day-win-candidates.md`
-- Awaiting Riley pick before locking landing hero promise
+- LOCKED: 90-day hero headline shipped to `/early-access` + API `/reserve` (exact text, no paraphrase). Candidates archive: `knowledge/sales/koa-90-day-win-candidates.md`
 
 ### Truncation self-fix (b2e3499)
 

@@ -29,6 +29,18 @@ If unset, landing + iMessage must still capture the lead and say the reservation
 - Brand: **ALTERED** (product surface may reference **ALTERED Koa** / Layer 1).
 - No em dashes. Hormozi-direct.
 
+## Locked hero copy (Riley-approved — do not paraphrase)
+
+**Primary headline (exact):**
+
+> Ninety days from now, the feature you've been circling finally ships - because you stopped re-running the same procrastination loop you already solved.
+
+**Subhead:** Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.
+
+**CTA under hero:** Reserve with $100 deposit (credits toward $499, net $399).
+
+Surfaces: `apps/web` `/early-access` (site root redirects here) and API interim `/reserve`.
+
 ## Prior band
 
 Earlier testing band was $99–$249 (placeholder $149). **$100 is the final call for now.**
