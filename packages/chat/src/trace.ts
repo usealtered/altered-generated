@@ -32,6 +32,7 @@ export type TraceStage =
   | "ack_send_start"
   | "ack_send_done"
   | "main_gen_detached"
+  | "main_gen_aborted"
   | "main_gen_start"
   | "main_gen_done"
   | "main_send_start"

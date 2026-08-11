@@ -12,7 +12,7 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 2. Sendblue webhook → `POST /webhooks/sendblue`
 3. **Read receipt immediately** via direct Sendblue `POST /api/mark-read` (no Chat SDK init), waitUntil-tracked, before any handler lock / DB / LLM
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
-5. Chat SDK **queue** concurrency (per-thread Redis lock; no mandatory burst debounce). Overlapping inbound drains with `context.skipped`.
+5. Chat SDK **burst** concurrency (`debounceMs: 400`): rapid texts coalesce into one handler (latest + `skipped[]`). Prior main-gen on the thread is aborted when a new turn starts.
 6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". First bubble before subscribe/DB/main agent. Redis `status-ack:*` SET NX skips duplicates. Surface `ops_imessage_ack`.
 7. **Inbound lock released after fast-ack** — main Sonnet/`generateText` runs via `waitUntil` (`main_gen_detached`) so the next text is not blocked 20-60s. Forced tools (`toolChoice: "required"` + `done`). Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status). Code sanitizer strips em dashes/markdown.
@@ -27,7 +27,8 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 | Layer | Mechanism | Behavior |
 |---|---|---|
-| Chat SDK inbound | `concurrency: { strategy: "queue" }` + Redis state locks | Serializes handlers; lock **must** release after fast-ack (main gen detached) |
+| Chat SDK inbound | `burst` + `debounceMs: 400` + Redis state locks | Coalesces rapid texts; lock held through burst window + fast-ack only |
+| Main gen | Detached via waitUntil + per-thread AbortController | New inbound aborts superseded Sonnet turn (`main_gen_aborted`) |
 | Sendblue adapter (`#integration` fork) | `sendReadReceipts: false` (we own mark-read) | Chat SDK locks still serialize inbound handlers |
 | Our webhook | Await direct mark-read (≤2s) + `waitUntil` before/around init | Receipt completes in-request; `webhookAgeMs` + `apiMs` traced |
 | Handler | `sinceWebhookMs` from Redis `trace:wh:*` | Measures queue/lock delay webhook→handler_start |

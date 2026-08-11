@@ -4,11 +4,15 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (fast-ack no longer blocked by status-ack dedupe / send lock).
+Last updated: 2026-08-11 (burst coalesce + abort superseded main-gen).
 
 ## HEAD on main
 
-See latest `main`. Fast LLM ack + structured traces + main-gen detached + **per-messageHandle status claim** (acks bypass send lock).
+See latest `main`. Burst coalesce (400ms) + abort prior main-gen so rapid texts are one turn, not four sequential Sonnet replies.
+
+### Rapid 4-message bug (Riley screenshots)
+
+With `queue` + main-gen detached, inbound lock released after fast-ack (~2s). Four quick texts each got their own handler + Sonnet turn (answered in order over and over; tools kept running; reads looked stuck). Fix: `concurrency.strategy: "burst"` + `debounceMs: 400`; `beginMainGen` aborts prior turn.
 
 ### Overlap 1786418774 root cause
 

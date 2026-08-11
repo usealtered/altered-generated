@@ -5,6 +5,7 @@ import { createSendblueAdapter } from "chat-adapter-sendblue";
 import { getServerEnv, normalizePhone } from "@altered/env";
 import { runInBackground } from "./background";
 import { generateFastAck } from "./fast-ack";
+import { beginMainGen, isCurrentMainGen } from "./main-gen-gate";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
@@ -126,10 +127,12 @@ export function createAlteredChat() {
   const env = getServerEnv();
   const chat = new Chat({
     userName: "altered-ops",
-    // Queue (not burst): no mandatory debounce wait on a lone message.
-    // Overlapping inbound still serializes per-thread; latest + skipped[] on drain.
+    // Burst: short window coalesces rapid texts into ONE handler (latest +
+    // skipped[]). Queue+detached-main-gen was releasing the lock after fast-ack
+    // (~2s), so four quick texts became four full Sonnet turns.
     concurrency: {
-      strategy: "queue",
+      strategy: "burst",
+      debounceMs: 400,
       maxQueueSize: 20,
       onQueueFull: "drop-oldest",
     },
@@ -244,13 +247,14 @@ export function createAlteredChat() {
     // Non-critical path after first bubble is out.
     void thread.subscribe().catch(() => undefined);
 
-    // CRITICAL: do NOT await Sonnet/main tools while holding the Chat SDK
-    // inbound Redis lock. Overlapping texts were waiting 20-60s+ for the prior
-    // turn to finish before their fast-ack could run. Detach main gen to
-    // waitUntil and return so the lock releases after first bubble.
+    // Detach Sonnet so the Chat SDK burst lock releases after fast-ack.
+    // Abort any prior in-flight main-gen on this thread (rapid follow-ups).
+    const { signal, generation } = beginMainGen(thread.id, trace);
     traceLog(trace, "main_gen_detached", {
       handlerMs: Date.now() - handlerStarted,
       sinceWebhookMs,
+      generation,
+      coalesced: context?.totalSinceLastHandler ?? 1,
     });
 
     runInBackground(
@@ -263,12 +267,21 @@ export function createAlteredChat() {
             text,
             outbound,
             trace,
+            abortSignal: signal,
           });
+          if (signal.aborted || !isCurrentMainGen(thread.id, generation)) {
+            traceLog(trace, "main_gen_aborted", {
+              generation,
+              reason: "stale_after_complete",
+            });
+            return;
+          }
           traceLog(trace, "turn_complete", {
             replyLen: reply.length,
             sends: outbound.sent.length,
             totalMs: Date.now() - handlerStarted,
             sinceWebhookMs,
+            generation,
           });
           console.info("[altered-ops] turn complete", {
             phone,
@@ -276,10 +289,25 @@ export function createAlteredChat() {
             replyLen: reply.length,
             sends: outbound.sent.length,
             totalMs: Date.now() - handlerStarted,
+            generation,
           });
         } catch (err) {
+          if (signal.aborted || !isCurrentMainGen(thread.id, generation)) {
+            traceLog(trace, "main_gen_aborted", {
+              generation,
+              reason: "abort_signal",
+            });
+            return;
+          }
           const msg = err instanceof Error ? err.message : String(err);
-          traceLog(trace, "turn_error", { error: msg });
+          if (/abort/i.test(msg)) {
+            traceLog(trace, "main_gen_aborted", {
+              generation,
+              reason: "abort_error",
+            });
+            return;
+          }
+          traceLog(trace, "turn_error", { error: msg, generation });
           console.error("[altered-ops] inbound handler failed", {
             phone,
             cid: trace.cid,

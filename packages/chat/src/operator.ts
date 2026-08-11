@@ -109,6 +109,7 @@ FORMATTING (hard rules - also enforced by code sanitizer):
 
 MULTI-SEND FLOW (hard rules):
 - The runtime already sent a fast LLM receipt-ack before you were invoked. Do NOT send another status ack. Never use the canned phrase "Checking that now."
+- Rapid inbound texts may be coalesced into one turn (paragraph-joined). Answer that combined turn ONCE. Do not narrate each line separately or re-answer older superseded turns.
 - Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
 - Flow: run tools as needed, start_typing, then send_message the final answer (split across sends on paragraph breaks when useful).
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
@@ -146,6 +147,7 @@ export async function handleOperatorMessage(input: {
   text: string;
   outbound?: OutboundSession;
   trace?: TraceContext;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   const ctx = input.ctx ?? createOperatorContext();
   const phone = normalizePhone(input.phone);
@@ -222,6 +224,7 @@ export async function handleOperatorMessage(input: {
       toolChoice: "required",
       stopWhen: [stepCountIs(10), hasToolCall("done")],
       temperature: 0.3,
+      abortSignal: input.abortSignal,
       prepareStep: async ({ stepNumber, steps }) => {
         // After non-messaging tools, nudge toward typing/send/done rather than more research.
         if (stepNumber === 0) return {};
