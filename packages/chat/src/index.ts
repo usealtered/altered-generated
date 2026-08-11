@@ -27,3 +27,4 @@ export {
   COMPLETION_AGG_WINDOW_SEC,
 } from "./notify";
 export { withThreadSendLock } from "./thread-lock";
+export { generateFastAck } from "./fast-ack";

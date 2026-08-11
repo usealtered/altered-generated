@@ -106,7 +106,7 @@ FORMATTING (hard rules - also enforced by code sanitizer):
 - Keep each send_message tight and iMessage-readable.
 
 MULTI-SEND FLOW (hard rules):
-- The runtime already sent a deterministic status ack ("Checking that now.") before you were invoked. Do NOT send another status ack.
+- The runtime already sent a fast LLM receipt-ack before you were invoked. Do NOT send another status ack like "Checking that now."
 - Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
 - Flow: run tools as needed, start_typing, then send_message the final answer (split across sends on paragraph breaks when useful).
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
@@ -156,11 +156,8 @@ export async function handleOperatorMessage(input: {
     return reply;
   }
 
-  // Status ack is sent by bot.ts before this function when outbound is bound.
-  // Keep a safety net here for non-bot callers, still before LLM work.
-  if (input.outbound) {
-    await input.outbound.ensureStatus("Checking that now.");
-  }
+  // Fast LLM ack is sent by bot.ts before this function. Do not send a second
+  // hardcoded status here - that was rejected as a permanent solution.
 
   await ensureSoftDefaultAgentSeed(ctx);
   const thread = await ensureThread(ctx, input.chatThreadId, phone);

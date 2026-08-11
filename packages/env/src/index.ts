@@ -51,6 +51,8 @@ export const serverEnvSchema = z.object({
   /** OpenRouter for AI SDK tool-calling operator */
   OPENROUTER_API_KEY: optionalString,
   CHAT_AGENT_MODEL_ID: z.string().default("anthropic/claude-sonnet-5"),
+  /** Fast model for the pre-turn receipt ack (no tools, tiny context). */
+  CHAT_ACK_MODEL_ID: z.string().default("anthropic/claude-haiku-4.5"),
 
   /** Public API origin, e.g. https://generated.api.usealtered.com */
   APP_BASE_URL: optionalUrl,

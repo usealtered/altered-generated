@@ -3,6 +3,7 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { Chat } from "chat";
 import { createSendblueAdapter } from "chat-adapter-sendblue";
 import { getServerEnv, normalizePhone } from "@altered/env";
+import { generateFastAck } from "./fast-ack";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 
@@ -65,12 +66,11 @@ function resolveInboundPhone(
   return candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
 }
 
-/** Combine burst/queue skipped messages with the latest into one operator turn. */
+/** Combine queue skipped messages with the latest into one operator turn. */
 function composeTurnText(message: MessageLike, context?: MessageContextLike) {
   const parts = [...(context?.skipped ?? []), message]
     .map((m) => m.text?.trim())
     .filter((t): t is string => Boolean(t));
-  // Dedupe identical adjacent bubbles
   const deduped: string[] = [];
   for (const p of parts) {
     if (deduped[deduped.length - 1] !== p) deduped.push(p);
@@ -114,12 +114,10 @@ export function createAlteredChat() {
   const env = getServerEnv();
   const chat = new Chat({
     userName: "altered-ops",
-    // Burst: short debounce for multi-bubble iMessage turns, then process latest
-    // with skipped[] context. Prevents drop of overlapping inbound while a
-    // "Checking that now." status send / LLM turn is in flight.
+    // Queue (not burst): no mandatory debounce wait on a lone message.
+    // Overlapping inbound still serializes per-thread; latest + skipped[] on drain.
     concurrency: {
-      strategy: "burst",
-      debounceMs: 700,
+      strategy: "queue",
       maxQueueSize: 20,
       onQueueFull: "drop-oldest",
     },
@@ -130,8 +128,6 @@ export function createAlteredChat() {
         defaultFromNumber: env.SENDBLUE_FROM_NUMBER,
         webhookSecret: env.SENDBLUE_WEBHOOK_SECRET,
         allowedServices: ["iMessage", "SMS", "RCS"],
-        // Adapter also fires mark-read before processMessage; we additionally
-        // track it via waitUntil in the webhook layer so it cannot be frozen.
         sendReadReceipts: true,
       }),
     },
@@ -150,6 +146,7 @@ export function createAlteredChat() {
     message: MessageLike,
     context?: MessageContextLike,
   ) => {
+    const handlerStarted = Date.now();
     const text = composeTurnText(message, context);
     if (!text) return;
 
@@ -164,10 +161,6 @@ export function createAlteredChat() {
 
     const adapter = chat.getAdapter("sendblue") as SendblueAdapterLike | undefined;
 
-    // Receipt must not wait on status sends / LLM. Fire and continue.
-    // (Primary path is webhook-layer waitUntil; this is a same-handler backup.)
-    void fireReadReceipt(adapter, thread.id, { phone });
-
     const outbound = createOutboundSession({
       id: thread.id,
       post: (body) => thread.post(body),
@@ -175,20 +168,25 @@ export function createAlteredChat() {
       sendReadReceipt: () => fireReadReceipt(adapter, thread.id, { phone }),
     });
 
-    // Deterministic status ack BEFORE subscribe / DB preamble / LLM / tools.
-    // Previously "Checking that now." waited on the first OpenRouter tool round-trip
-    // (often tens of seconds). This must not depend on model latency.
-    const ackStarted = Date.now();
-    const ack = await outbound.ensureStatus("Checking that now.");
-    console.info("[altered-ops] status ack", {
+    // Receipt is fire-and-forget (also waitUntil-tracked at webhook). Do not
+    // serialize first-bubble send behind mark-read completing.
+    void fireReadReceipt(adapter, thread.id, { phone });
+    const ack = await generateFastAck(ctx, phone, text);
+    const sendStarted = Date.now();
+    await outbound.send(ack.text, "status");
+    console.info("[altered-ops] fast ack sent", {
       phone,
       threadId: thread.id,
-      skipped: ack.skipped,
-      ms: Date.now() - ackStarted,
+      model: ack.model,
+      genMs: ack.ms,
+      sendMs: Date.now() - sendStarted,
+      handlerMs: Date.now() - handlerStarted,
+      timedOut: ack.timedOut,
+      preview: ack.text.slice(0, 80),
     });
 
-    // Subscribe after ack so Redis/state work cannot delay the first bubble.
-    await thread.subscribe().catch(() => undefined);
+    // Non-critical path after first bubble is out.
+    void thread.subscribe().catch(() => undefined);
 
     try {
       const reply = await handleOperatorMessage({
@@ -202,6 +200,7 @@ export function createAlteredChat() {
         phone,
         replyLen: reply.length,
         sends: outbound.sent.length,
+        totalMs: Date.now() - handlerStarted,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -214,7 +213,6 @@ export function createAlteredChat() {
     }
   };
 
-  // onDirectMessage signature: (thread, message, channel, context?)
   chat.onDirectMessage(async (thread, message, _channel, context) => {
     await onMessage(thread, message, context);
   });

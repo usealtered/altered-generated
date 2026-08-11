@@ -19,3 +19,8 @@ export function createOpenRouter(env: ServerEnv) {
 export function chatAgentModelId(env: ServerEnv) {
   return env.CHAT_AGENT_MODEL_ID;
 }
+
+/** Lightweight model for the first visible ack bubble. */
+export function chatAckModelId(env: ServerEnv) {
+  return env.CHAT_ACK_MODEL_ID;
+}

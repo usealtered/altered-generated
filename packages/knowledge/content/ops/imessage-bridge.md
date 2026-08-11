@@ -12,9 +12,9 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 2. Sendblue webhook → `POST /webhooks/sendblue`
 3. **Read receipt immediately** (waitUntil-tracked) before Chat SDK handler lock / status sends
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
-5. Chat SDK **burst** concurrency (per-thread lock, ~700ms debounce): overlapping inbound messages coalesce; latest handled with `context.skipped`
-6. **Deterministic status ack** ("Checking that now.") sent immediately after receipt - before subscribe/DB/LLM. Not model-gated.
-7. AI SDK `generateText` with `toolChoice: "required"` + `done` tool (no execute) - no raw assistant dumps
+5. Chat SDK **queue** concurrency (per-thread serialize; no burst debounce on a lone message). Overlapping inbound drains with `context.skipped`.
+6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". Runs **concurrently** with read receipt; first bubble before subscribe/DB/main agent. Surface `ops_imessage_ack` in `ai_events` (fire-and-forget write).
+7. Main AI SDK `generateText` with full tools (`toolChoice: "required"` + `done`) - no raw assistant dumps. Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status ack). Code sanitizer strips em dashes/markdown.
 9. Per-thread outbound send lock serializes status bubbles vs background completion notices
 10. Cursor completions: QStash poll → Redis debounce (~3s) → forced-tool plain-text summary (never raw markdown tables)
@@ -26,7 +26,7 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 | Layer | Mechanism | Behavior |
 |---|---|---|
-| Chat SDK inbound | `concurrency: { strategy: "burst", debounceMs: 700 }` + Redis/memory state locks | Per-thread serialize handlers; short burst window; latest message + skipped[] |
+| Chat SDK inbound | `concurrency: { strategy: "queue" }` + Redis/memory state locks | Per-thread serialize handlers; no mandatory 700ms debounce; latest + skipped[] on drain |
 | Sendblue adapter | `sendReadReceipts: true` fires mark-read before `processMessage` | Alone was not waitUntil-tracked → could freeze under overlap; webhook layer now tracks receipt |
 | Our webhook | Early `fireReadReceipt` + `waitUntil` | Receipt survives overlapping turns / status sends |
 | Our outbound | `withThreadSendLock(threadId)` | Serializes `thread.post` so status + completion notices do not interleave |

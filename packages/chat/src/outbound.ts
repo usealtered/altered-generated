@@ -79,7 +79,7 @@ export function createOutboundSession(transport: ThreadTransport) {
      * One short ack before tool work if nothing has gone out yet.
      * Safe under parallel tool execution (AI SDK can run tools concurrently).
      */
-    async ensureStatus(fallback = "Checking that now.") {
+    async ensureStatus(fallback = "On it.") {
       if (statusInFlight) {
         await statusInFlight;
         return { skipped: true as const };
