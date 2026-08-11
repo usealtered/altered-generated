@@ -33,6 +33,7 @@ See latest `main`.
 - Neon: `post_batches`, `post_ideas`, `post_events` (migration `0004_posting`)
 - Approve via iMessage `APPROVE ALL` or `/ops/posts/approve` magic link
 - Cron: QStash `0 14 * * 1,3,5` generate + `*/15 * * * *` publish (Vercel Cron skipped - Hobby sub-daily limit)
+- **Smoke (2026-08-11):** generate tick created batch `b1c5ecd9…` (5 ideas), iMessage notify fired, schedules `altered-posts-generate` / `altered-posts-publish` live. Publish waits on Zernio keys.
 - **Blocked:** set on api-generated: `ZERNIO_API_KEY`, `ZERNIO_TWITTER_ACCOUNT_ID`, optional `ZERNIO_PROFILE_ID` / `ZERNIO_LINKEDIN_ACCOUNT_ID`
 
 ### Inbound concurrency (keep it simple)
