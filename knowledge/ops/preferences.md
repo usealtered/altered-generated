@@ -51,8 +51,12 @@ Before ending a long chat, ensure:
 
 ## Vercel
 
-- `VERCEL_TOKEN` (when present) is **only** for project `api-generated` on team scope `altered` (aka `usealtered/api-generated`).
-- Allowed: `vercel env pull`, deploy status for that project.
+- `VERCEL_TOKEN` (when present) is **only** for allowlisted projects on team scope `altered`:
+  - `api-generated` (backend)
+  - `web-generated` preferred / `altered-generated-web` live site today
+- Allowed: `vercel env pull`, deploy status, allowlist-guarded deploys via `scripts/vercel-deploy-*.sh`.
+- Forbidden: `workspace`, `api`, or any other auto-created project; bare `vercel deploy` from repo root; `vercel link` without `--project`.
+- See `knowledge/ops/vercel-projects.md`.
 - Forbidden without explicit permission: other projects, domains, team settings, integration changes.
 
 ## Communication

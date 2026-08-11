@@ -4,11 +4,23 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
+<<<<<<< HEAD
 Last updated: 2026-08-11 (locked 90-day hero headline + HITL posting pipeline).
+=======
+Last updated: 2026-08-11 (Vercel allowlist self-fix + HITL posting).
+>>>>>>> 1066aee (fix(ops): hard-pin Vercel allowlist; stop unauthorized project fan-out)
 
 ## HEAD on main
 
 See latest `main`.
+
+### Vercel allowlist (URGENT 2026-08-11)
+
+- **Only:** `api-generated` + `web-generated` / live `altered-generated-web`
+- **Never:** `workspace`, `api`, or bare `vercel deploy` from repo root
+- Docs: `knowledge/ops/vercel-projects.md`
+- Scripts: `pnpm vercel:deploy:api` / `pnpm vercel:deploy:web`
+- **Riley delete:** `altered/workspace` (Git already disconnected) + `altered/api` (no Git link, 1 Error deploy)
 
 ### Offer LOCKED
 

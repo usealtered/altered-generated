@@ -20,6 +20,12 @@ title: Decisions log
 - Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
 - Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.
 
+## 2026-08-11 (Vercel allowlist violation / self-fix)
+
+- **Violation:** Agent CLI `vercel deploy` without `--project` auto-created `altered/workspace` (from `/workspace` cwd) and linked it to GitHub `main`, causing fan-out Error deploys on every push. Separate `altered/api` created earlier the same day from `apps/api` cwd.
+- **Mitigation:** Git disconnected from `workspace`; local root `.vercel` removed; allowlist scripts + docs. Riley to delete `workspace` + `api` in dashboard.
+- Details: `knowledge/ops/vercel-projects.md`.
+
 ## 2026-08-11 (HITL posting / Zernio)
 
 - **Zernio** is the social posting API (`docs.zernio.com`, env `ZERNIO_API_KEY`). Not Buffer/Typefully.

@@ -5,7 +5,11 @@ See also `knowledge/ops/preferences.md`, `knowledge/ops/handoff.md`, `knowledge/
 ## Hard rules
 
 1. **Git:** Get finished work onto **`main`**. Riley does not manage PRs/branches — you do. Prefer commit+push to `main`; if you used a branch/PR, merge it yourself when done.
-2. **Vercel:** Token only for **`usealtered/api-generated`** (`api-generated` / scope `altered`). Never other projects.
+2. **Vercel:** Token only for allowlisted projects on team scope `altered`:
+   - `api-generated` (backend) — primary
+   - `web-generated` / live `altered-generated-web` (site)
+   Never `workspace`, `api`, or any auto-created project. See `knowledge/ops/vercel-projects.md`.
+   Prefer `scripts/vercel-deploy-api.sh` / `scripts/vercel-deploy-web.sh` (allowlist-guarded). Never `vercel deploy` from repo root without `--project`.
 3. **No external integration changes** without explicit permission.
 4. **Repo scope:** Only `usealtered/altered-generated` unless Riley expands scope.
 5. Ask Riley in chat / iMessage — not via repo-file questionnaires.
@@ -48,9 +52,13 @@ Riley and the iMessage copilot should not have to spell this audit checklist out
 ## Vercel env pull (api-generated only)
 
 ```bash
-# never other Vercel projects
+# never other Vercel projects — never deploy from repo root without --project
 npx vercel link --token "$VERCEL_TOKEN" --scope altered --project api-generated --yes
 npx vercel env pull .env.local --token "$VERCEL_TOKEN" --environment production --yes
+
+# production deploys (allowlist-guarded)
+./scripts/vercel-deploy-api.sh
+# ./scripts/vercel-deploy-web.sh
 ```
 
 Never print secret values in chat, commits, or logs.

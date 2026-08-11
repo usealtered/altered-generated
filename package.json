@@ -12,7 +12,10 @@
     "db:studio": "pnpm --filter @altered/db studio",
     "knowledge:index": "pnpm --filter @altered/rag index",
     "knowledge:sync": "rm -rf packages/knowledge/content && mkdir -p packages/knowledge/content && cp -R knowledge/. packages/knowledge/content/",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "vercel:check": "bash scripts/vercel-allowlist-check.sh",
+    "vercel:deploy:api": "bash scripts/vercel-deploy-api.sh",
+    "vercel:deploy:web": "bash scripts/vercel-deploy-web.sh"
   },
   "devDependencies": {
     "turbo": "^2.5.4",

@@ -3,6 +3,7 @@ node_modules
 .next
 dist
 .vercel
+**/.vercel/
 .env
 .env.local
 .env.*.local
@@ -15,3 +16,4 @@ dist/
 .env*
 packages/ui-message/src/proof-static.png
 apps/api/.vercel/
+apps/web/.vercel/

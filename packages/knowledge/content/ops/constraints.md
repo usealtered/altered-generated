@@ -10,8 +10,9 @@ title: Hard operating constraints
 
 ## Vercel / external integrations
 
-- You may use the Vercel token **only** for the `usealtered/api-generated` project (and reading its env/deploy status for this repo’s API).
-- **Do not** touch any other Vercel project, team setting, domain, or integration.
+- You may use the Vercel token **only** for allowlisted projects on scope `altered`: `api-generated` (API) and `web-generated` / live `altered-generated-web` (site). See `vercel-projects.md`.
+- **Do not** touch any other Vercel project (`workspace`, `api`, experimental*, etc.), team setting, domain, or integration.
+- **Do not** run bare `vercel deploy` / `vercel link` without `--project` on the allowlist (auto-creates stray projects named after the cwd).
 - **Do not** adjust external integrations (Vercel, Sendblue, Stripe, Neon, Upstash, DNS, etc.) without explicit permission.
 - **Do not** touch any other GitHub repo.
 
