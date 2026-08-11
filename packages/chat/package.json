@@ -9,7 +9,7 @@
     "./offer": "./src/offer.ts"
   },
   "scripts": {
-    "test": "tsx --test src/phone.test.ts src/agents.test.ts src/outbound.test.ts src/thread-lock.test.ts src/thread-id.test.ts src/fast-ack.test.ts src/trace.test.ts src/main-gen-gate.test.ts",
+    "test": "tsx --test src/phone.test.ts src/agents.test.ts src/outbound.test.ts src/thread-lock.test.ts src/thread-id.test.ts src/fast-ack.test.ts src/trace.test.ts src/main-gen-gate.test.ts src/webhook-timing.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
   },

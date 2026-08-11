@@ -3,6 +3,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import {
   createOperatorContext,
   createTrace,
+  dispatchWebhookFastAck,
   flushCompletionNotices,
   getAlteredChat,
   parseSendblueDateSent,
@@ -86,15 +87,20 @@ app.use("*", async (c, next) => {
 
 type SendblueInboundBody = Record<string, unknown>;
 
+type EarlyInbound = {
+  receipt: Promise<unknown>;
+  fastAck: Promise<unknown>;
+};
+
 /**
- * Earliest possible read receipt: direct Sendblue HTTP, no Chat SDK init.
- * Caller should await with a short timeout before returning HTTP 200 so the
- * mark-read is not left solely to waitUntil races under long background turns.
+ * Side effects that must NOT wait on Chat SDK inbound lock / burst debounce:
+ * mark-read + Haiku fast-ack send. Fast-ack is waitUntil'd so overlap-B can
+ * ack while overlap-A still holds the handler lock.
  */
-function earlySendblueReadReceipt(
+function startEarlyInbound(
   body: SendblueInboundBody,
   receivedAt: number,
-): Promise<unknown> | null {
+): EarlyInbound | null {
   const env = getServerEnv();
   if (!env.SENDBLUE_FROM_NUMBER) return null;
 
@@ -123,20 +129,20 @@ function earlySendblueReadReceipt(
   });
 
   const content =
-    typeof body.content === "string" ? body.content.slice(0, 80) : undefined;
+    typeof body.content === "string" ? body.content : undefined;
 
   traceLog(trace, "webhook_parsed", {
     dateSent: dateSentMs ? new Date(dateSentMs).toISOString() : null,
     dateSentRaw: body.date_sent ?? body.dateSent ?? body.sent_at ?? null,
     webhookAgeMs: webhookAgeMs(dateSentMs, receivedAt),
-    textPreview: content,
+    textPreview: content?.slice(0, 80),
     service: body.service ?? null,
   });
   traceLog(trace, "webhook_received", {
     dateSent: dateSentMs ? new Date(dateSentMs).toISOString() : null,
     dateSentRaw: body.date_sent ?? body.dateSent ?? body.sent_at ?? null,
     webhookAgeMs: webhookAgeMs(dateSentMs, receivedAt),
-    textPreview: content,
+    textPreview: content?.slice(0, 80),
     service: body.service ?? null,
   });
 
@@ -148,9 +154,20 @@ function earlySendblueReadReceipt(
     trace,
     source: "webhook_early",
   });
-  // Also waitUntil in case await races/timeouts.
-  trackWaitUntil(receipt);
-  return receipt;
+
+  const trimmed = (content ?? "").trim();
+  const fastAck = trimmed
+    ? dispatchWebhookFastAck({
+        phone: contact,
+        fromNumber: from,
+        text: trimmed,
+        messageHandle,
+        threadId,
+        trace,
+      })
+    : Promise.resolve({ ok: true, skipped: true });
+
+  return { receipt, fastAck };
 }
 
 app.post("/webhooks/sendblue", async (c) => {
@@ -162,11 +179,13 @@ app.post("/webhooks/sendblue", async (c) => {
     body = {};
   }
 
-  // Await mark-read briefly BEFORE Chat SDK init / handler lock / HTTP 200.
-  const receipt = earlySendblueReadReceipt(body, receivedAt);
-  if (receipt) {
+  // Mark-read + fast-ack start BEFORE Chat SDK lock / burst debounce.
+  const early = startEarlyInbound(body, receivedAt);
+  if (early) {
+    trackWaitUntil(early.receipt);
+    trackWaitUntil(early.fastAck);
     await Promise.race([
-      receipt,
+      early.receipt,
       new Promise<void>((resolve) =>
         setTimeout(resolve, MARK_READ_AWAIT_MS),
       ),

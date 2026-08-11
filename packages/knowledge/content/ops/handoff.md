@@ -4,11 +4,23 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (burst coalesce + abort superseded main-gen).
+Last updated: 2026-08-11 (webhook-early fast-ack outside Chat SDK lock — shipping).
 
 ## HEAD on main
 
-See latest `main`. Burst coalesce (400ms) + abort prior main-gen so rapid texts are one turn, not four sequential Sonnet replies.
+See latest `main`. Fast-ack runs at webhook receipt (`waitUntil` + direct Sendblue), **before** `chat.initialize` / Chat SDK burst lock. Handler only backup-acks if `ack-claimed:` is absent.
+
+### OV2-B 1786419164 proof (before — bug)
+
+| Event | ts (UTC) |
+|---|---|
+| B webhook_received | 03:32:46.385 |
+| A main_gen_detached (lock release) | 03:32:47.961 |
+| B handler_start | 03:32:48.220 (**sinceWebhookMs=1835**) |
+| B ack_send_done | 03:32:49.777 |
+| A main_gen_start | 03:32:48.654 |
+
+B waited on A's **handler lock during fast-ack**, not A's main-gen. Fix: `dispatchWebhookFastAck` at webhook before `chat.initialize` / lock. After fix, expect B `source: webhook_early` `ack_send_done` with low `sinceWebhookMs` / independent of A's handler.
 
 ### Rapid 4-message bug (Riley screenshots)
 

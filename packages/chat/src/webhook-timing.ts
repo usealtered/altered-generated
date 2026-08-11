@@ -61,3 +61,64 @@ export async function lookupWebhookReceivedAt(
     return null;
   }
 }
+
+const ACK_CLAIMED = new Set<string>();
+const ACK_SENT = new Set<string>();
+
+function ackClaimedKey(messageHandle: string) {
+  return `ack-claimed:${messageHandle}`;
+}
+
+function ackSentKey(messageHandle: string) {
+  return `ack-sent:${messageHandle}`;
+}
+
+/**
+ * Claimed as soon as webhook-early ack starts (before Haiku/Sendblue).
+ * Prevents the Chat SDK handler from starting a backup ack while the
+ * webhook path is still in flight on another waitUntil.
+ */
+export async function markWebhookAckClaimed(
+  messageHandle: string,
+): Promise<void> {
+  ACK_CLAIMED.add(messageHandle);
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.set(ackClaimedKey(messageHandle), "1", { ex: TTL_SEC });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Mark that webhook-early already delivered the fast-ack bubble. */
+export async function markWebhookAckSent(messageHandle: string): Promise<void> {
+  ACK_SENT.add(messageHandle);
+  ACK_CLAIMED.add(messageHandle);
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.set(ackSentKey(messageHandle), "1", { ex: TTL_SEC });
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function wasWebhookAckSent(
+  messageHandle: string | undefined,
+): Promise<boolean> {
+  if (!messageHandle) return false;
+  if (ACK_CLAIMED.has(messageHandle) || ACK_SENT.has(messageHandle)) {
+    return true;
+  }
+  const redis = getRedis();
+  if (!redis) return false;
+  try {
+    const claimed = await redis.get<string>(ackClaimedKey(messageHandle));
+    if (claimed != null) return true;
+    const raw = await redis.get<string>(ackSentKey(messageHandle));
+    return raw != null;
+  } catch {
+    return false;
+  }
+}

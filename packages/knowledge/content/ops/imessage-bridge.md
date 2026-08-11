@@ -10,10 +10,10 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 1. Riley texts `+13054098546` (allowlisted `+12368370221`)
 2. Sendblue webhook → `POST /webhooks/sendblue`
-3. **Read receipt immediately** via direct Sendblue `POST /api/mark-read` (no Chat SDK init), waitUntil-tracked, before any handler lock / DB / LLM
+3. **Read receipt + fast-ack at webhook** (direct Sendblue HTTP, no Chat SDK lock): mark-read awaited ≤2s; Haiku ack waitUntil'd in parallel with handler. Overlap-B can ack while A still holds the burst lock.
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
 5. Chat SDK **burst** concurrency (`debounceMs: 400`): rapid texts coalesce into one handler (latest + `skipped[]`). Prior main-gen on the thread is aborted when a new turn starts.
-6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". First bubble before subscribe/DB/main agent. Redis `status-ack:*` SET NX skips duplicates. Surface `ops_imessage_ack`.
+6. Handler skips fast-ack if webhook claimed/sent it (`ack-claimed:` / `ack-sent:${messageHandle}`). Claim is set before Haiku so handler never double-generates. Backup ack only if webhook path never claimed.
 7. **Inbound lock released after fast-ack** — main Sonnet/`generateText` runs via `waitUntil` (`main_gen_detached`) so the next text is not blocked 20-60s. Forced tools (`toolChoice: "required"` + `done`). Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status). Code sanitizer strips em dashes/markdown.
 9. Per-thread outbound send lock (in-process + Redis SET NX) serializes replies vs background completion notices. Lock key is the canonical base64url Sendblue thread id.

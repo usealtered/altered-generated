@@ -11,6 +11,7 @@ import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
 import { decodeSendblueThreadId } from "./thread-id";
 import { createTrace, type TraceContext, traceLog } from "./trace";
+import { shouldSkipHandlerFastAck } from "./webhook-fast-ack";
 import { lookupWebhookReceivedAt } from "./webhook-timing";
 
 export { sendblueThreadIdForContact, decodeSendblueThreadId } from "./thread-id";
@@ -220,29 +221,45 @@ export function createAlteredChat() {
       source: "handler_backup",
     });
 
-    traceLog(trace, "fast_ack_start", {});
-    const ack = await generateFastAck(ctx, phone, text, trace);
-    traceLog(trace, "fast_ack_done", {
-      genMs: ack.ms,
-      model: ack.model,
-      timedOut: ack.timedOut,
-    });
-
-    const sendStarted = Date.now();
-    const sent = await outbound.send(ack.text, "status");
-    const sendMs = Date.now() - sendStarted;
-    console.info("[altered-ops] fast ack sent", {
-      phone,
-      threadId: thread.id,
-      cid: trace.cid,
-      model: ack.model,
-      genMs: ack.ms,
-      sendMs,
-      handlerMs: Date.now() - handlerStarted,
-      timedOut: ack.timedOut,
-      skipped: Boolean(sent.skipped),
-      preview: ack.text.slice(0, 80),
-    });
+    // Fast-ack is dispatched at webhook receipt (outside Chat SDK lock).
+    // Only backup here if webhook path did not already deliver it.
+    const webhookAcked = await shouldSkipHandlerFastAck(messageHandle);
+    if (webhookAcked) {
+      traceLog(trace, "status_send_done", {
+        skipped: true,
+        reason: "webhook_early_ack",
+        sinceWebhookMs,
+      });
+      console.info("[altered-ops] fast ack skipped (webhook-early)", {
+        phone,
+        cid: trace.cid,
+        sinceWebhookMs,
+      });
+    } else {
+      traceLog(trace, "fast_ack_start", { source: "handler_backup" });
+      const ack = await generateFastAck(ctx, phone, text, trace);
+      traceLog(trace, "fast_ack_done", {
+        source: "handler_backup",
+        genMs: ack.ms,
+        model: ack.model,
+        timedOut: ack.timedOut,
+      });
+      const sendStarted = Date.now();
+      const sent = await outbound.send(ack.text, "status");
+      console.info("[altered-ops] fast ack sent", {
+        phone,
+        threadId: thread.id,
+        cid: trace.cid,
+        model: ack.model,
+        genMs: ack.ms,
+        sendMs: Date.now() - sendStarted,
+        handlerMs: Date.now() - handlerStarted,
+        timedOut: ack.timedOut,
+        skipped: Boolean(sent.skipped),
+        preview: ack.text.slice(0, 80),
+        source: "handler_backup",
+      });
+    }
 
     // Non-critical path after first bubble is out.
     void thread.subscribe().catch(() => undefined);
