@@ -143,6 +143,7 @@ export async function zernioCreatePost(
         ? nested.scheduledFor
         : undefined;
     let platformPostUrl: string | undefined;
+    let platformError: string | undefined;
     const platforms = nested?.platforms;
     if (Array.isArray(platforms) && platforms[0]) {
       const first = platforms[0] as Record<string, unknown>;
@@ -151,6 +152,20 @@ export async function zernioCreatePost(
       } else if (typeof first.url === "string") {
         platformPostUrl = first.url;
       }
+      if (typeof first.error === "string") platformError = first.error;
+      if (first.status === "failed" && !platformError) {
+        platformError = "platform publish failed";
+      }
+    }
+    if (status === "failed" || status === "partial") {
+      return {
+        ok: false,
+        postId,
+        status,
+        platformPostUrl,
+        error: platformError ?? `zernio status ${status}`,
+        raw,
+      };
     }
     return {
       ok: true,

@@ -35,7 +35,7 @@ See latest `main`.
 | API `/reserve` | **302 → site early-access** (no HTML on api-generated) |
 | `PRIMARY_CHECKOUT_URL` | **EMPTY** — checkout only in iMessage after qualify |
 | iMessage sales mode | Qualify first, then introduce $100 deposit |
-| Posting | Zernio key + twitter account + profile env set; publish via usealtered_gen |
+| Posting | Zernio live on @usealtered_gen — https://twitter.com/i/web/status/2087235934492213389 |
 
 ### Posting pipeline (new)
 
