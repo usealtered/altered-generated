@@ -4,11 +4,7 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-<<<<<<< HEAD
-Last updated: 2026-08-11 (locked 90-day hero headline + HITL posting pipeline).
-=======
-Last updated: 2026-08-11 (Vercel allowlist self-fix + HITL posting).
->>>>>>> 1066aee (fix(ops): hard-pin Vercel allowlist; stop unauthorized project fan-out)
+Last updated: 2026-08-11 (Vercel allowlist self-fix + locked hero + HITL posting).
 
 ## HEAD on main
 
