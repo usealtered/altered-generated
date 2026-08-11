@@ -20,6 +20,14 @@ title: Decisions log
 - Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
 - Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.
 
+## 2026-08-11 (funnel + domain split)
+
+- Landing HTML **only** on `altered-generated-web` (`generated.usealtered.com/early-access`). API `/reserve` + `/early-access` are 302 redirects (preserve UTMs).
+- Landing CTA is **Text Koa** (`sms:+13054098546`) only — no price, Stripe, or payment form on the page.
+- Sales mode introduces $100 → $499 credit **only after qualify**.
+- Zernio: `ZERNIO_API_KEY` + `ZERNIO_TWITTER_ACCOUNT_ID=6a7b5b5c…` (usealtered_gen) + `ZERNIO_PROFILE_ID=6a7b5826…`.
+- Metrics: `inboundMessagesToday` vs `uniquePhonesMessagedToday` vs `funnelStages` (do not treat raw inbound as unique leads).
+
 ## 2026-08-11 (Vercel allowlist violation / self-fix)
 
 - **Violation:** Agent CLI `vercel deploy` without `--project` auto-created `altered/workspace` (from `/workspace` cwd) and linked it to GitHub `main`, causing fan-out Error deploys on every push. Separate `altered/api` created earlier the same day from `apps/api` cwd.

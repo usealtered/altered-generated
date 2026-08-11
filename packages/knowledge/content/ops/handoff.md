@@ -31,12 +31,11 @@ See latest `main`.
 
 | Surface | Status |
 |---|---|
-| API money page | `https://generated.api.usealtered.com/reserve` |
-| Site | `https://generated.usealtered.com/early-access` (root redirects here) |
-| `PRIMARY_CHECKOUT_URL` | **EMPTY** — needs Stripe Payment Link for $100 |
-| iMessage sales mode | Non-allowlisted → `handleSalesMessage` |
-| Ops mode | Allowlisted (Riley) unchanged |
-| Posting pipeline | Generate + HITL shipped; **Zernio publish blocked on keys** |
+| Site landing | `https://generated.usealtered.com/early-access` — iMessage CTA only (no price/checkout) |
+| API `/reserve` | **302 → site early-access** (no HTML on api-generated) |
+| `PRIMARY_CHECKOUT_URL` | **EMPTY** — checkout only in iMessage after qualify |
+| iMessage sales mode | Qualify first, then introduce $100 deposit |
+| Posting | Zernio key + twitter account + profile env set; publish via usealtered_gen |
 
 ### Posting pipeline (new)
 
