@@ -39,7 +39,7 @@ function trackWaitUntil(task: Promise<unknown>) {
   }
 }
 
-// So chat can detach Sonnet main-gen after fast-ack without losing the isolate.
+// Keeps webhook-early fast-ack / mark-read alive past the HTTP response.
 setBackgroundScheduler(trackWaitUntil);
 
 const MARK_READ_AWAIT_MS = 2000;
