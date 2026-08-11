@@ -37,6 +37,34 @@ function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Standing preamble injected into every Cursor agent prompt from iMessage. */
+export function buildCursorPrompt(input: {
+  task: string;
+  workstream: string;
+  phone?: string;
+  spawn?: boolean;
+}): string {
+  return [
+    input.spawn
+      ? "[via iMessage operator bridge]"
+      : "[via iMessage operator bridge - AI tools]",
+    input.phone ? `From: ${input.phone}` : null,
+    `Workstream: ${input.workstream}`,
+    "Repo: altered-generated - ALTERED early-access deposit engine.",
+    "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
+    "Goal: early-access reservation deposits ($99-$249 band) for ALTERED.",
+    "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories + DB tasks.",
+    "Git: ship to main (Riley does not manage PRs/branches). Prefer commit+push to main; if you used a branch/PR, merge it yourself when done.",
+    "",
+    "STANDING AUDIT DEFAULT: For any diagnosis/bug/runtime task, YOU own pulling Vercel logs (api-generated only), querying relevant Neon tables, checking Redis state, and OpenRouter/AI usage as needed. Do not wait for Riley to spell that out.",
+    "SELF-FIX: Treat Riley's concerns as implicit change requests. Ship fixes; track open loops in dev_tasks. If you notice instruction drift (markdown/em dashes/raw dumps), file a self-correction task.",
+    "",
+    input.task,
+  ]
+    .filter((line): line is string => line != null)
+    .join("\n");
+}
+
 async function bumpMetric(
   ctx: OperatorContext,
   field: "leadsCreated" | "depositsCount" | "imessageInbound" | "cursorRuns",
@@ -413,14 +441,12 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
         if (!agentId) {
           const created = await ctx.cursor.createAgent({
-            prompt: [
-              "[via iMessage operator bridge]",
-              `Workstream: ${workstream}`,
-              "Repo: altered-generated - ALTERED early-access deposit engine.",
-              "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
-              "",
+            prompt: buildCursorPrompt({
               task,
-            ].join("\n"),
+              workstream,
+              phone: session.phone,
+              spawn: true,
+            }),
             repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
             startingRef: ctx.env.CURSOR_DEFAULT_REF,
             name: `ws:${workstream} - ${collapseWhitespace(task).slice(0, 48)}`,
@@ -490,16 +516,11 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           };
         }
 
-        const enriched = [
-          "[via iMessage operator bridge - AI tools]",
-          `From: ${session.phone}`,
-          `Workstream: ${workstream}`,
-          "Goal: early-access reservation deposits ($99-$249 band) for ALTERED.",
-          "Prefer shipping revenue/lead surfaces; persist decisions into knowledge/ and memories + DB tasks.",
-          "Git: ship to main (Riley does not manage PRs/branches). Prefer commit+push to main; if you used a branch/PR, merge it yourself when done.",
-          "",
+        const enriched = buildCursorPrompt({
           task,
-        ].join("\n");
+          workstream,
+          phone: session.phone,
+        });
 
         try {
           const { run } = await ctx.cursor.createRun(
@@ -616,14 +637,12 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         if (!ctx.cursor) return { error: "CURSOR_API_KEY missing" };
         const workstream = slugifyWorkstream(rawWorkstream ?? "general");
         const created = await ctx.cursor.createAgent({
-          prompt: [
-            "[via iMessage operator bridge]",
-            `Workstream: ${workstream}`,
-            "Repo: altered-generated - ALTERED early-access deposit engine.",
-            "Read AGENTS.md and knowledge/ops/preferences.md before acting.",
-            "",
+          prompt: buildCursorPrompt({
             task,
-          ].join("\n"),
+            workstream,
+            phone: session.phone,
+            spawn: true,
+          }),
           repoUrl: ctx.env.CURSOR_DEFAULT_REPO_URL,
           startingRef: ctx.env.CURSOR_DEFAULT_REF,
           name: name ?? `ws:${workstream} - ${collapseWhitespace(task).slice(0, 48)}`,

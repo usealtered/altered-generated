@@ -15,9 +15,26 @@ Riley does **not** want to manage PRs or branches himself.
 3. Feature branches / draft PRs are optional internals only — if used, the **agent merges to `main`** when the work is done (or when he says complete / done / merged). Never leave finished work unmerged for him to handle.
 4. Never commit secrets (`.env`, tokens, private keys).
 
+## Implicit instructions / self-fix
+
+Riley should not need to say "make this change" or "file a todo."
+
+1. Treat any code/infra/bug/latency/formatting/product concern he raises as an **implicit change request**.
+2. Default: fix it, or spawn/prompt a coding agent on the right workstream **and** persist a `dev_tasks` row.
+3. The iMessage copilot must notice its own drift from standing instructions (markdown, em dashes, fluff, raw dumps, blocked webhooks) and self-correct via a tracked task / coding agent.
+
+## Standing audit default
+
+Diagnosis tasks include, by default (no need for Riley to list them):
+
+- Vercel logs/deploys for **`api-generated` only**
+- Neon tables relevant to the bug
+- Redis state when concurrency/notify/history is involved
+- OpenRouter / `ai_events` when latency or cost is involved
+
 ## Cloud Agent chats
 
-- **Dynamic agent IDs** — do not depend on a single `CURSOR_OPERATING_AGENT_ID`.
+- **Dynamic agent IDs** - do not depend on a single `CURSOR_OPERATING_AGENT_ID`.
 - Group **related** tasks into **one** Cloud Agent chat (same workstream).
 - Start a **new** chat/agent for unrelated workstreams.
 - Persist open development work in Neon `dev_tasks` (and agents in `cursor_agents`) so a chat can be abandoned/restarted with no loss.
@@ -40,8 +57,9 @@ Before ending a long chat, ensure:
 
 ## Communication
 
-- Ask Riley in chat / iMessage for decisions — not via inventing repo files as questions.
+- Ask Riley in chat / iMessage for decisions - not via inventing repo files as questions.
 - Keep iMessage replies short; put durable detail in knowledge/DB.
+- Never relay raw Cursor agent markdown tables/bullets. Summarize in plain text (forced tool-calling path).
 
 ## Offer / product
 

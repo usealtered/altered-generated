@@ -11,6 +11,22 @@ export type AlteredChat = Chat;
 type SendblueAdapterLike = {
   sendReadReceipt?: (threadId: string) => Promise<unknown>;
   markRead?: (threadId: string) => Promise<unknown>;
+  encodeThreadId?: (d: {
+    fromNumber: string;
+    contactNumber?: string;
+    groupId?: string;
+  }) => string;
+};
+
+type MessageLike = {
+  text?: string | null;
+  author?: { userId?: string };
+  raw?: unknown;
+};
+
+type MessageContextLike = {
+  skipped?: MessageLike[];
+  totalSinceLastHandler?: number;
 };
 
 function createState() {
@@ -26,13 +42,8 @@ function createState() {
 
 function resolveInboundPhone(
   envFromNumber: string | undefined,
-  message: {
-    author?: { userId?: string };
-    raw?: unknown;
-  },
+  message: MessageLike,
 ) {
-  // Prefer contact `number` from Sendblue payload; adapter author.userId uses
-  // from_number which can be the agent line on some inbound shapes.
   const agentLine = normalizePhone(envFromNumber ?? "");
   const raw =
     message.raw && typeof message.raw === "object"
@@ -54,10 +65,64 @@ function resolveInboundPhone(
   return candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
 }
 
+/** Combine burst/queue skipped messages with the latest into one operator turn. */
+function composeTurnText(message: MessageLike, context?: MessageContextLike) {
+  const parts = [...(context?.skipped ?? []), message]
+    .map((m) => m.text?.trim())
+    .filter((t): t is string => Boolean(t));
+  // Dedupe identical adjacent bubbles
+  const deduped: string[] = [];
+  for (const p of parts) {
+    if (deduped[deduped.length - 1] !== p) deduped.push(p);
+  }
+  return deduped.join("\n\n");
+}
+
+/**
+ * Fire read receipt immediately. Never await behind status/LLM work.
+ * Caller should also register the promise with waitUntil so the isolate stays warm.
+ */
+export function fireReadReceipt(
+  adapter: SendblueAdapterLike | undefined,
+  threadId: string,
+  meta?: { phone?: string },
+): Promise<void> {
+  const task = (async () => {
+    if (adapter?.sendReadReceipt) {
+      await adapter.sendReadReceipt(threadId);
+      return;
+    }
+    await adapter?.markRead?.(threadId);
+  })()
+    .then(() => {
+      console.info("[altered-ops] read receipt sent", {
+        phone: meta?.phone,
+        threadId,
+      });
+    })
+    .catch((err) => {
+      console.warn("[altered-ops] read receipt failed", {
+        phone: meta?.phone,
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  return task;
+}
+
 export function createAlteredChat() {
   const env = getServerEnv();
   const chat = new Chat({
     userName: "altered-ops",
+    // Burst: short debounce for multi-bubble iMessage turns, then process latest
+    // with skipped[] context. Prevents drop of overlapping inbound while a
+    // "Checking that now." status send / LLM turn is in flight.
+    concurrency: {
+      strategy: "burst",
+      debounceMs: 700,
+      maxQueueSize: 20,
+      onQueueFull: "drop-oldest",
+    },
     adapters: {
       sendblue: createSendblueAdapter({
         apiKey: env.SENDBLUE_API_KEY,
@@ -65,7 +130,8 @@ export function createAlteredChat() {
         defaultFromNumber: env.SENDBLUE_FROM_NUMBER,
         webhookSecret: env.SENDBLUE_WEBHOOK_SECRET,
         allowedServices: ["iMessage", "SMS", "RCS"],
-        // Fork: auto read-receipt on inbound before message handlers run.
+        // Adapter also fires mark-read before processMessage; we additionally
+        // track it via waitUntil in the webhook layer so it cannot be frozen.
         sendReadReceipts: true,
       }),
     },
@@ -81,13 +147,10 @@ export function createAlteredChat() {
       startTyping?: () => Promise<unknown>;
       subscribe: () => Promise<unknown>;
     },
-    message: {
-      text?: string | null;
-      author?: { userId?: string };
-      raw?: unknown;
-    },
+    message: MessageLike,
+    context?: MessageContextLike,
   ) => {
-    const text = message.text?.trim();
+    const text = composeTurnText(message, context);
     if (!text) return;
 
     const phone = resolveInboundPhone(env.SENDBLUE_FROM_NUMBER, message);
@@ -95,36 +158,23 @@ export function createAlteredChat() {
       phone,
       threadId: thread.id,
       textPreview: text.slice(0, 80),
+      skipped: context?.skipped?.length ?? 0,
+      burstTotal: context?.totalSinceLastHandler ?? 1,
     });
 
     const adapter = chat.getAdapter("sendblue") as SendblueAdapterLike | undefined;
-    const sendReadReceipt = async () => {
-      if (adapter?.sendReadReceipt) {
-        await adapter.sendReadReceipt(thread.id);
-        return;
-      }
-      await adapter?.markRead?.(thread.id);
-    };
 
-    // Read receipt first, before any LLM / tool work.
-    await sendReadReceipt()
-      .then(() => {
-        console.info("[altered-ops] read receipt sent", { phone, threadId: thread.id });
-      })
-      .catch((err) => {
-        console.warn("[altered-ops] read receipt failed", {
-          phone,
-          threadId: thread.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+    // Receipt must not wait on status sends / LLM. Fire and continue.
+    // (Primary path is webhook-layer waitUntil; this is a same-handler backup.)
+    void fireReadReceipt(adapter, thread.id, { phone });
+
     await thread.subscribe();
 
     const outbound = createOutboundSession({
       id: thread.id,
       post: (body) => thread.post(body),
       startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
-      sendReadReceipt,
+      sendReadReceipt: () => fireReadReceipt(adapter, thread.id, { phone }),
     });
 
     try {
@@ -151,18 +201,17 @@ export function createAlteredChat() {
     }
   };
 
-  // Preferred path for Sendblue 1:1 iMessage/SMS
-  chat.onDirectMessage(async (thread, message) => {
-    await onMessage(thread, message);
+  // onDirectMessage signature: (thread, message, channel, context?)
+  chat.onDirectMessage(async (thread, message, _channel, context) => {
+    await onMessage(thread, message, context);
   });
 
-  // Fallbacks for group / mention-style routing
-  chat.onNewMention(async (thread, message) => {
-    await onMessage(thread, message);
+  chat.onNewMention(async (thread, message, context) => {
+    await onMessage(thread, message, context);
   });
 
-  chat.onSubscribedMessage(async (thread, message) => {
-    await onMessage(thread, message);
+  chat.onSubscribedMessage(async (thread, message, context) => {
+    await onMessage(thread, message, context);
   });
 
   return chat;
@@ -173,4 +222,14 @@ let singleton: AlteredChat | null = null;
 export function getAlteredChat() {
   if (!singleton) singleton = createAlteredChat();
   return singleton;
+}
+
+/** Resolve Sendblue thread id for a contact (used by webhook early receipt). */
+export function sendblueThreadIdForContact(
+  fromNumber: string,
+  contactNumber: string,
+): string {
+  const from = Buffer.from(fromNumber).toString("base64url");
+  const contact = Buffer.from(contactNumber).toString("base64url");
+  return `sendblue:${from}:${contact}`;
 }

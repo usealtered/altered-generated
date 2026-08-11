@@ -1,12 +1,15 @@
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { RPCHandler } from "@orpc/server/fetch";
-import { getAlteredChat } from "@altered/chat";
 import {
   createOperatorContext,
+  fireReadReceipt,
+  flushCompletionNotices,
+  getAlteredChat,
   pollCursorJob,
+  sendblueThreadIdForContact,
 } from "@altered/chat";
 import { createDb, cursorJobs } from "@altered/db";
-import { getServerEnv } from "@altered/env";
+import { getServerEnv, normalizePhone } from "@altered/env";
 import { waitUntil } from "@vercel/functions";
 import { Receiver } from "@upstash/qstash";
 import { eq } from "drizzle-orm";
@@ -18,6 +21,16 @@ import { router } from "./router";
 const app = new Hono();
 const rpc = new RPCHandler(router);
 const openapi = new OpenAPIHandler(router);
+
+function trackWaitUntil(task: Promise<unknown>) {
+  try {
+    waitUntil(task);
+  } catch {
+    void Promise.resolve(task).catch((err) => {
+      console.error("[altered-ops] background task failed", err);
+    });
+  }
+}
 
 app.use("*", logger());
 app.use(
@@ -33,7 +46,12 @@ app.get("/", (c) =>
     name: "altered-api",
     health: "/health",
     rpc: "/rpc/*",
-    webhooks: ["/webhooks/sendblue", "/webhooks/qstash/*"],
+    webhooks: [
+      "/webhooks/sendblue",
+      "/webhooks/qstash/cursor-poll",
+      "/webhooks/qstash/cursor-retry",
+      "/webhooks/qstash/notify-flush",
+    ],
   }),
 );
 
@@ -55,6 +73,43 @@ app.use("*", async (c, next) => {
   await next();
 });
 
+/**
+ * Early read receipt: fire mark-read and register with waitUntil BEFORE Chat SDK
+ * processMessage / per-thread lock. Prevents ~20s delays when a prior status send
+ * still holds the inbound handler lock (adapter fire-and-forget was not tracked).
+ */
+async function earlySendblueReadReceipt(req: Request) {
+  const env = getServerEnv();
+  if (!env.SENDBLUE_FROM_NUMBER) return;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.clone().json()) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  if (body.is_outbound === true) return;
+  if (body.status !== "RECEIVED") return;
+  if (typeof body.message_handle !== "string") return;
+
+  const contact = normalizePhone(
+    String(body.number ?? body.from_number ?? ""),
+  );
+  const from = normalizePhone(
+    String(body.sendblue_number ?? body.to_number ?? env.SENDBLUE_FROM_NUMBER),
+  );
+  if (!contact || !from || contact === from) return;
+
+  const chat = getAlteredChat();
+  await chat.initialize();
+  const adapter = chat.getAdapter("sendblue") as {
+    sendReadReceipt?: (threadId: string) => Promise<unknown>;
+  };
+  const threadId = sendblueThreadIdForContact(from, contact);
+  trackWaitUntil(fireReadReceipt(adapter, threadId, { phone: contact }));
+}
+
 app.post("/webhooks/sendblue", async (c) => {
   const chat = getAlteredChat();
   await chat.initialize();
@@ -62,19 +117,12 @@ app.post("/webhooks/sendblue", async (c) => {
   if (!handle) {
     return c.json({ error: "sendblue adapter not mounted" }, 500);
   }
-  // ACK Sendblue immediately. Chat SDK processMessage continues via waitUntil
-  // so Vercel keeps the isolate alive for LLM/tools/outbound sends.
+
+  // Receipt first (waitUntil-tracked), independent of handler lock / status sends.
+  await earlySendblueReadReceipt(c.req.raw);
+
   return handle(c.req.raw, {
-    waitUntil: (task) => {
-      try {
-        waitUntil(task);
-      } catch {
-        // Outside Vercel request context, fall back to detached promise.
-        void Promise.resolve(task).catch((err) => {
-          console.error("[altered-ops] sendblue background task failed", err);
-        });
-      }
-    },
+    waitUntil: trackWaitUntil,
   });
 });
 
@@ -102,30 +150,17 @@ app.post("/webhooks/qstash/cursor-poll", async (c) => {
     notifyPhone?: string;
   }>();
   const ctx = createOperatorContext();
+  // Queues a debounced, LLM-summarized notice - never raw markdown dumps.
   const result = await pollCursorJob(ctx, body);
-  if (result.done && result.summary && result.notifyPhone && ctx.env.SENDBLUE_API_KEY) {
-    const chat = getAlteredChat();
-    await chat.initialize();
-    const adapter = chat.getAdapter("sendblue") as {
-      getSdk?: () => {
-        messages: {
-          send: (p: {
-            number: string;
-            from_number: string;
-            content: string;
-          }) => Promise<unknown>;
-        };
-      };
-    };
-    const sdk = adapter.getSdk?.();
-    if (sdk && ctx.env.SENDBLUE_FROM_NUMBER) {
-      await sdk.messages.send({
-        number: result.notifyPhone,
-        from_number: ctx.env.SENDBLUE_FROM_NUMBER,
-        content: result.summary,
-      });
-    }
-  }
+  return c.json(result);
+});
+
+app.post("/webhooks/qstash/notify-flush", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json<{ phone: string; token: string }>();
+  const ctx = createOperatorContext();
+  const result = await flushCompletionNotices(ctx, body.phone, body.token);
   return c.json(result);
 });
 

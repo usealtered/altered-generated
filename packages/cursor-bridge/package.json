@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "tsx --test src/imessage.test.ts",
+    "test": "tsx --test src/imessage.test.ts src/sanitize.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo ok"
   },

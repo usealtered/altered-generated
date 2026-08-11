@@ -21,3 +21,9 @@ export {
   getSoftDefaultAgentId,
 } from "./agents";
 export { listDevTasks, upsertDevTask } from "./tasks";
+export {
+  enqueueCompletionNotice,
+  flushCompletionNotices,
+  COMPLETION_AGG_WINDOW_SEC,
+} from "./notify";
+export { withThreadSendLock } from "./thread-lock";

@@ -1,9 +1,7 @@
-import { generateText, stepCountIs } from "ai";
+import { generateText, hasToolCall, stepCountIs, tool } from "ai";
 import { eq } from "drizzle-orm";
-import {
-  formatRunStatus,
-  truncateForImessage,
-} from "@altered/cursor-bridge";
+import { z } from "zod";
+import { truncateForImessage } from "@altered/cursor-bridge";
 import { cursorJobs, messages, threads } from "@altered/db";
 import { isOperatorPhone, normalizePhone, parseAllowlist } from "@altered/env";
 import {
@@ -27,6 +25,7 @@ import {
   createOperatorTools,
   loadMemoryPreamble,
 } from "./tools";
+import { enqueueCompletionNotice } from "./notify";
 
 /** Optional env bootstrap only - not a hard singleton agent. */
 async function ensureSoftDefaultAgentSeed(ctx: OperatorContext) {
@@ -76,7 +75,6 @@ async function recentHistory(
   ctx: OperatorContext,
   phone: string,
 ): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
-  // Keep short recent turns only - durable facts live in keyed memories.
   const fromRedis =
     (await ctx.redis?.lrange(`chat:history:${phone}`, 0, 5)) ?? [];
   const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -100,7 +98,7 @@ Product: ALTERED - Knowledge Orchestration Infrastructure SaaS.
 Near-term goal: early-access reservation deposits (offer band $99-$249, amount still being finalized).
 You talk to Riley (founder/operator scaling toward $1B). Write with weight and intention: serious, brutalist, precise, critical, actionable, forward-moving. Hormozi-style directness when it fits. Not fluffy. Not playful.
 
-FORMATTING (hard rules):
+FORMATTING (hard rules - also enforced by code sanitizer):
 - Plain text only. No markdown asterisks, bold, italics, code fences, or markdown bullets.
 - Structure with \\n\\n paragraph breaks, and/or multiple send_message calls.
 - Never use em dashes. Use hyphens (-) instead.
@@ -108,10 +106,20 @@ FORMATTING (hard rules):
 - Keep each send_message tight and iMessage-readable.
 
 MULTI-SEND FLOW (hard rules):
-- Every user-visible reply goes through the send_message tool. Do not rely on a single final assistant blob.
-- When you need any other tool: (1) send_message a short status first (e.g. "Checking that now."), token-limited, (2) run the tools, (3) start_typing, (4) send_message the final answer (split across sends on natural paragraph breaks when useful).
+- Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
+- When you need any other tool: (1) send_message a short status first (e.g. "Checking that now."), (2) run the tools, (3) start_typing, (4) send_message the final answer.
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
 - You may send multiple send_message calls in one turn.
+- When finished with all user-visible sends, call the done tool. toolChoice is required - you must use tools every step.
+
+SELF-FIX / DELEGATION (hard rules):
+- Any code, infra, bug, latency, formatting, or product concern Riley raises is an IMPLICIT instruction to act. Do not wait for him to say "make this change."
+- Default action: prompt_cursor / spawn_cursor_agent on the right workstream, and upsert_dev_task so it is tracked.
+- If it is a tiny factual ops question only, answer directly - but if it implies a fix, ship a task.
+- Hyper-awareness: if YOU notice your own replies drifted (markdown, em dashes, fluff, raw dumps, missing status-before-tools), immediately upsert_dev_task a self-correction and/or prompt_cursor to fix the underlying code. Do not wait to be told.
+
+AUDIT DEFAULT (for coding agents you spawn):
+- For any diagnosis task, the coding agent owns pulling Vercel logs, querying relevant Neon tables, checking Redis state, and OpenRouter/AI usage as needed. Riley and this copilot should not have to spell that out each time. Encode it in the prompt_cursor task text.
 
 Never invent slash commands. Use tools for status, knowledge, Cursor work, leads, metrics, checkout link, durable memory, or DB tasks.
 
@@ -125,7 +133,8 @@ Default: if Riley asks you to build/fix/ship/change the repo, call prompt_cursor
 If he asks a factual question about the offer/ops/product, search_knowledge first.
 Persist important decisions with save_memory - KEY REQUIRED (offer.deposit, ops.decision.*, prefs.*).
 Do not dump narrative into always-on context; use recall_memories / search_knowledge when needed.
-Do not claim Stripe Checkout API is wired - use get_checkout_link for PRIMARY_CHECKOUT_URL when set.`;
+Do not claim Stripe Checkout API is wired - use get_checkout_link for PRIMARY_CHECKOUT_URL when set.
+Never paste raw agent transcripts, markdown tables, or tool JSON to Riley.`;
 
 export async function handleOperatorMessage(input: {
   ctx?: OperatorContext;
@@ -166,11 +175,24 @@ export async function handleOperatorMessage(input: {
   const memory = await loadMemoryPreamble(ctx, phone);
   const softDefault = await getSoftDefaultAgentId(ctx);
   const history = await recentHistory(ctx, phone);
-  const tools = createOperatorTools(ctx, {
+  const baseTools = createOperatorTools(ctx, {
     phone,
     threadDbId: thread?.id,
     outbound: input.outbound,
   });
+
+  // Forced tool-calling: every step must call a tool; done (no execute) ends the turn.
+  const tools = {
+    ...baseTools,
+    done: tool({
+      description:
+        "Call after all user-visible send_message calls for this turn. Ends the loop. Do not put the user-facing reply here - use send_message.",
+      inputSchema: z.object({
+        ok: z.boolean().optional().default(true),
+      }),
+      // Intentionally no execute - AI SDK stops when a tool lacks execute.
+    }),
+  };
 
   const openrouter = createOpenRouter(ctx.env);
   const modelId = chatAgentModelId(ctx.env);
@@ -188,8 +210,27 @@ export async function handleOperatorMessage(input: {
       ].join("\n\n"),
       messages: [...history, { role: "user", content: input.text }],
       tools,
-      stopWhen: stepCountIs(8),
+      toolChoice: "required",
+      stopWhen: [stepCountIs(10), hasToolCall("done")],
       temperature: 0.3,
+      prepareStep: async ({ stepNumber, steps }) => {
+        // After non-messaging tools, nudge toward typing/send/done rather than more research.
+        if (stepNumber === 0) return {};
+        const called = steps.flatMap((s) =>
+          (s.toolCalls ?? []).map((c) => c.toolName),
+        );
+        const sent = called.includes("send_message");
+        const didWork = called.some(
+          (n) => n !== "send_message" && n !== "start_typing" && n !== "done",
+        );
+        if (didWork && !sent) {
+          return {
+            activeTools: ["send_message", "start_typing", "done"],
+            toolChoice: "required" as const,
+          };
+        }
+        return {};
+      },
     });
 
     const usage = extractUsage(result.usage);
@@ -203,18 +244,20 @@ export async function handleOperatorMessage(input: {
       latencyMs: Date.now() - started,
       toolsCalled,
       ok: true,
-      meta: { stepCount: Array.isArray(result.steps) ? result.steps.length : 0 },
+      meta: {
+        stepCount: Array.isArray(result.steps) ? result.steps.length : 0,
+        forcedTools: true,
+      },
     });
 
-    const leftover =
-      result.text?.trim() ||
-      (!input.outbound?.hasSent
-        ? "Done. Check tool results or Cursor status if nothing else came back."
-        : "");
-
+    // Prefer tool-sent bubbles. Do NOT flush raw model text (forced tools path).
     if (input.outbound) {
-      if (leftover) await input.outbound.flushText(leftover);
-      const reply = input.outbound.joinedTranscript() || leftover;
+      if (!input.outbound.hasSent) {
+        await input.outbound.send(
+          "Done. Nothing else to report on that turn.",
+        );
+      }
+      const reply = input.outbound.joinedTranscript();
       await saveMessage(ctx, thread?.id, "outbound", reply);
       await ctx.redis?.lpush(
         `chat:history:${phone}`,
@@ -224,17 +267,7 @@ export async function handleOperatorMessage(input: {
       return reply;
     }
 
-    const reply = truncateForImessage(
-      leftover ||
-        "Done. Check tool results or Cursor status if nothing else came back.",
-    );
-    await saveMessage(ctx, thread?.id, "outbound", reply);
-    await ctx.redis?.lpush(
-      `chat:history:${phone}`,
-      JSON.stringify({ at: Date.now(), in: input.text, out: reply }),
-    );
-    await ctx.redis?.ltrim(`chat:history:${phone}`, 0, 49);
-    return reply;
+    return "Done.";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await recordAiEvent(ctx, {
@@ -261,8 +294,12 @@ export async function handleOperatorMessage(input: {
 export async function pollCursorJob(
   ctx: OperatorContext,
   input: { jobId: string; agentId: string; runId: string; notifyPhone?: string },
-): Promise<{ done: boolean; summary?: string; notifyPhone?: string }> {
-  if (!ctx.cursor) return { done: true, summary: "No Cursor client" };
+): Promise<{
+  done: boolean;
+  queuedNotify?: boolean;
+  notifyPhone?: string;
+}> {
+  if (!ctx.cursor) return { done: true };
   const run = await ctx.cursor.getRun(input.agentId, input.runId);
   const terminal = ["FINISHED", "ERROR", "CANCELLED", "EXPIRED"].includes(
     run.status,
@@ -291,11 +328,21 @@ export async function pollCursorJob(
       .where(eq(cursorJobs.id, input.jobId));
   }
 
-  return {
-    done: true,
-    notifyPhone: input.notifyPhone,
-    summary: truncateForImessage(
-      `Cursor done (${run.status})\nagent=${input.agentId}\n${formatRunStatus(run)}`,
-    ),
-  };
+  // Never return raw markdown/result for direct Sendblue relay.
+  // Queue for debounced, forced-tool summarized delivery.
+  if (input.notifyPhone) {
+    const { queued } = await enqueueCompletionNotice(ctx, input.notifyPhone, {
+      agentId: input.agentId,
+      runId: input.runId,
+      status: run.status,
+      rawResult: run.result ?? null,
+    });
+    return {
+      done: true,
+      queuedNotify: queued,
+      notifyPhone: input.notifyPhone,
+    };
+  }
+
+  return { done: true };
 }

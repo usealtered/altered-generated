@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sanitizeImessageText } from "./sanitize";
 
 const BASE_URL = "https://api.cursor.com/v1";
 
@@ -197,16 +198,10 @@ export function collapseWhitespace(text: string): string {
 
 /**
  * Truncate for iMessage while preserving paragraph breaks (`\n\n`).
- * Only collapses horizontal runs of spaces/tabs; never flattens newlines into spaces.
+ * Runs the outbound sanitizer first (em dashes / markdown stripped).
  */
 export function truncateForImessage(text: string, max = 1400): string {
-  const cleaned = text
-    .replace(/\r\n/g, "\n")
-    .replace(/[^\S\n]+/g, " ")
-    .replace(/ \n/g, "\n")
-    .replace(/\n /g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const cleaned = sanitizeImessageText(text);
   if (cleaned.length <= max) return cleaned;
   return `${cleaned.slice(0, max - 1)}...`;
 }
