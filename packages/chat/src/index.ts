@@ -62,4 +62,5 @@ export {
 export {
   sendImessageDirect,
   sendImessageMediaDirect,
+  sendImessageReplyDirect,
 } from "./sendblue-send";

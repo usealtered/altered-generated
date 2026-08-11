@@ -20,6 +20,11 @@ title: Decisions log
 - Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
 - Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.
 
+## 2026-08-11 (truncation self-fix)
+
+- **Bug:** First visible bubble clipped mid-sentence as `Who's the target...`. Root cause: fast-ack / status path used `truncateForImessage(..., 80)` which ellipsis-clips. Repro: rogue Haiku ack asking "Three quick ones..." (also `maxOutputTokens: 40` finish) → 89 chars → hard clip. Not coalesce race.
+- **Fix:** `enforceShortStatusBubble` rejects questions/overlong status into `On it.` (never `...`). Reply path keeps `splitImessageParts` (no ellipsis). Cap-hit warnings logged. Ack `maxOutputTokens` 32 + finishReason=length → fallback.
+
 ## 2026-08-11 (sales funnel)
 
 - **Offer LOCKED:** $100 program reservation deposit; credits toward $499 (net $399). Never call it pre-sale in copy. See `offers/early-access-deposit.md` + `ops/marketing-discrepancies.md` (overrides altered S4 no-pre-sell + $221 price).

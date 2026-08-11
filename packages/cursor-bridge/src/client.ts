@@ -199,11 +199,86 @@ export function collapseWhitespace(text: string): string {
 /**
  * Truncate for iMessage while preserving paragraph breaks (`\n\n`).
  * Runs the outbound sanitizer first (em dashes / markdown stripped).
+ *
+ * WARNING: This silently appends "..." when over max. Prefer
+ * `splitImessageParts` for user-visible replies, and
+ * `enforceShortStatusBubble` for status/fast-ack (never mid-sentence clip).
  */
 export function truncateForImessage(text: string, max = 1400): string {
   const cleaned = sanitizeImessageText(text);
   if (cleaned.length <= max) return cleaned;
+  console.warn("[altered-ops] truncateForImessage hit cap", {
+    max,
+    originalLength: cleaned.length,
+    preview: cleaned.slice(0, 80),
+  });
   return `${cleaned.slice(0, max - 1)}...`;
+}
+
+const STATUS_FALLBACK = "On it.";
+
+/**
+ * Status / fast-ack bubbles must stay short and never mid-sentence clip.
+ * If the model ignores the short-ack prompt (questions, ramble, length),
+ * replace with a safe fallback instead of ellipsis-truncating.
+ */
+export function enforceShortStatusBubble(
+  text: string,
+  opts: { maxChars?: number; maxWords?: number; fallback?: string } = {},
+): {
+  text: string;
+  rejected: boolean;
+  reason?: string;
+  originalLength: number;
+} {
+  const maxChars = opts.maxChars ?? 80;
+  const maxWords = opts.maxWords ?? 12;
+  const fallback = opts.fallback ?? STATUS_FALLBACK;
+  const cleaned = sanitizeImessageText(text);
+  const originalLength = cleaned.length;
+  if (!cleaned) {
+    return { text: fallback, rejected: true, reason: "empty", originalLength };
+  }
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (cleaned.includes("?")) {
+    console.warn("[altered-ops] status bubble rejected: contains_question", {
+      originalLength,
+      preview: cleaned.slice(0, 80),
+    });
+    return {
+      text: fallback,
+      rejected: true,
+      reason: "contains_question",
+      originalLength,
+    };
+  }
+  if (words.length > maxWords) {
+    console.warn("[altered-ops] status bubble rejected: too_many_words", {
+      words: words.length,
+      maxWords,
+      preview: cleaned.slice(0, 80),
+    });
+    return {
+      text: fallback,
+      rejected: true,
+      reason: "too_many_words",
+      originalLength,
+    };
+  }
+  if (cleaned.length > maxChars) {
+    console.warn("[altered-ops] status bubble rejected: too_long", {
+      originalLength,
+      maxChars,
+      preview: cleaned.slice(0, 80),
+    });
+    return {
+      text: fallback,
+      rejected: true,
+      reason: "too_long",
+      originalLength,
+    };
+  }
+  return { text: cleaned, rejected: false, originalLength };
 }
 
 function hardChunk(text: string, max: number): string[] {
@@ -224,10 +299,18 @@ function hardChunk(text: string, max: number): string[] {
 /**
  * Split outbound iMessage text into multiple sends on natural `\n\n` breaks.
  * Tiny adjacent paragraphs may stay together; long ones become separate bubbles.
+ * Never ellipsis-truncates - oversize chunks are hard-split on whitespace.
  */
 export function splitImessageParts(text: string, max = 1400): string[] {
-  const cleaned = truncateForImessage(text, Number.MAX_SAFE_INTEGER);
+  const cleaned = sanitizeImessageText(text);
   if (!cleaned) return [];
+  if (cleaned.length > max) {
+    console.warn("[altered-ops] splitImessageParts oversize input", {
+      max,
+      originalLength: cleaned.length,
+      preview: cleaned.slice(0, 80),
+    });
+  }
 
   const paragraphs = cleaned
     .split(/\n\n+/)

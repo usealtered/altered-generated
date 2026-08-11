@@ -1,7 +1,7 @@
 import {
   sanitizeImessageText,
   splitImessageParts,
-  truncateForImessage,
+  enforceShortStatusBubble,
 } from "@altered/cursor-bridge";
 import {
   claimThreadStatusAck,
@@ -85,7 +85,20 @@ export function createOutboundSession(transport: ThreadTransport) {
 
     const parts =
       kind === "status"
-        ? [truncateForImessage(cleaned, 80)]
+        ? (() => {
+            const enforced = enforceShortStatusBubble(cleaned, {
+              maxChars: 80,
+              maxWords: 12,
+            });
+            if (enforced.rejected) {
+              console.warn("[altered-ops] outbound status rejected (no ellipsis clip)", {
+                threadId: transport.id,
+                reason: enforced.reason,
+                originalLength: enforced.originalLength,
+              });
+            }
+            return [enforced.text];
+          })()
         : splitImessageParts(cleaned);
 
     if (kind === "status") {
@@ -213,7 +226,7 @@ export function createOutboundSession(transport: ThreadTransport) {
     async flushText(text: string) {
       const trimmed = sanitizeImessageText(text ?? "");
       if (!trimmed) return { sent: 0 };
-      if (sent.some((s) => s === trimmed || s === truncateForImessage(trimmed))) {
+      if (sent.some((s) => s === trimmed)) {
         return { sent: 0 };
       }
       const before = sent.length;

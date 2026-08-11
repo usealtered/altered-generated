@@ -1,5 +1,8 @@
 import { generateText } from "ai";
-import { sanitizeImessageText, truncateForImessage } from "@altered/cursor-bridge";
+import {
+  enforceShortStatusBubble,
+  sanitizeImessageText,
+} from "@altered/cursor-bridge";
 import type { OperatorContext } from "./operator-context";
 import { chatAckModelId, createOpenRouter } from "./model";
 import { extractUsage, recordAiEvent } from "./observability";
@@ -9,8 +12,9 @@ const ACK_SYSTEM = `You are ALTERED's iMessage agent acknowledging the latest me
 Write ONE short plain-text confirmation that you received it and are on it.
 Hard rules:
 - Max 12 words.
+- Max ~80 characters.
 - Plain text only. No markdown. No em dashes (use hyphens).
-- No questions. No tools. No lists.
+- No questions. No tools. No lists. No multi-part asks.
 - Serious and direct. Natural, not a canned template.
 Examples of shape (do not copy verbatim): On it. Looking into that. Got it - checking now. Got you.`;
 
@@ -44,6 +48,7 @@ async function loadTinyHistory(
 /**
  * Fast receipt-confirmation generate: tiny history, no tools, short max tokens.
  * Times out to a short fallback so the first bubble stays under the latency budget.
+ * Never mid-sentence clips - rogue long/question outputs become FALLBACK.
  */
 export async function generateFastAck(
   ctx: OperatorContext,
@@ -75,17 +80,36 @@ export async function generateFastAck(
         ...history,
         { role: "user", content: text.slice(0, 500) },
       ],
-      maxOutputTokens: 40,
-      temperature: 0.4,
+      // Keep tiny - still enforceShortStatusBubble below so length finish
+      // cannot ship a mid-sentence ellipsis clip to Riley.
+      maxOutputTokens: 32,
+      temperature: 0.3,
       abortSignal: controller.signal,
     });
 
-    const cleaned = truncateForImessage(
-      sanitizeImessageText(result.text ?? ""),
-      80,
+    const raw = sanitizeImessageText(result.text ?? "");
+    const finishReason = String(
+      (result as { finishReason?: string }).finishReason ?? "",
     );
-    const textOut = cleaned || FALLBACK;
+    const enforced = enforceShortStatusBubble(raw, {
+      maxChars: 80,
+      maxWords: 12,
+      fallback: FALLBACK,
+    });
+    const lengthClipped = finishReason === "length";
+    const textOut =
+      lengthClipped && !enforced.rejected ? FALLBACK : enforced.text;
     const ms = Date.now() - started;
+
+    if (enforced.rejected || lengthClipped) {
+      console.warn("[altered-ops] fast-ack output rejected", {
+        phone,
+        reason: lengthClipped ? "finish_reason_length" : enforced.reason,
+        originalLength: enforced.originalLength,
+        finishReason,
+        preview: raw.slice(0, 100),
+      });
+    }
 
     // Never block first-bubble send on Neon observability writes.
     void recordAiEvent(ctx, {
@@ -96,11 +120,20 @@ export async function generateFastAck(
       latencyMs: ms,
       toolsCalled: [],
       ok: true,
-      meta: { fastAck: true, maxOutputTokens: 40 },
+      meta: {
+        fastAck: true,
+        maxOutputTokens: 32,
+        finishReason,
+        ackRejected: enforced.rejected || lengthClipped,
+        ackRejectReason: lengthClipped
+          ? "finish_reason_length"
+          : enforced.reason,
+        rawLen: enforced.originalLength,
+      },
     }).catch(() => undefined);
 
     return {
-      text: textOut,
+      text: textOut || FALLBACK,
       ms,
       model: modelId,
       timedOut: false,

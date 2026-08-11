@@ -2,7 +2,7 @@ import { generateText, hasToolCall, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import {
   sanitizeImessageText,
-  truncateForImessage,
+  splitImessageParts,
 } from "@altered/cursor-bridge";
 import type { OperatorContext } from "./operator-context";
 import { createOpenRouter, chatAgentModelId } from "./model";
@@ -176,15 +176,12 @@ async function deliverCompletionNotices(
     if (adapter.startTyping) {
       await adapter.startTyping(threadId).catch(() => undefined);
     }
-    const parts = summary
-      .split(/\n\n+/)
-      .map((p) => sanitizeImessageText(p))
-      .filter(Boolean);
+    const parts = splitImessageParts(summary, 1400);
     for (const part of parts.length ? parts : [summary]) {
       await sdk.messages.send({
         number: phone,
         from_number: from,
-        content: truncateForImessage(part, 1400),
+        content: part,
       });
     }
   });
