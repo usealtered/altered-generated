@@ -43,6 +43,11 @@ See latest `main`.
 1. Stripe Payment Link ($100) → set `PRIMARY_CHECKOUT_URL` on api-generated
 2. Optional: deploy `apps/web` to `generated.usealtered.com`
 
+
+### Truncation self-fix (b2e3499)
+
+Riley first bubble clipped as `Who's the target...`. Cause: `truncateForImessage(..., 80)` on fast-ack/status (not coalesce race). Fix: `enforceShortStatusBubble` → `On it.` (never ellipsis). Live proof: status path sent `On it.`; reply path sent 3 intact question bubbles to Riley.
+
 ## Domains / numbers
 
 - API: `https://generated.api.usealtered.com`
