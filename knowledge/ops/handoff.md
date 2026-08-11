@@ -109,3 +109,9 @@ curl -s https://generated.api.usealtered.com/ops/posts/status
 - **Last DELIVERED:** ~18:04Z. All ops outbound from 18:15–18:27 failed device-side while our API still logged send success (HTTP 200, no outbound status webhook configured).
 - **Fix:** Restart Messages.app (and Sendblue agent if needed) on the Sendblue host Mac. Then text +13054098546 to confirm DELIVERED.
 - **Detection shipped:** `checkSendblueDeviceHealth` on `/ops/posts/status`, `/ops/dashboard`, `/ops/sendblue-health`.
+
+### CLI deploy script bug (2026-08-11)
+
+- Failed deploy `api-generated-cswur3br7…`: Root Directory `apps/api` does not exist.
+- Cause: `scripts/vercel-deploy-api.sh` ran `vercel deploy` from `apps/api` cwd while project Root Directory is already `apps/api`.
+- Git-push to main still succeeded (sendblue health live). Scripts fixed to deploy from monorepo root only.

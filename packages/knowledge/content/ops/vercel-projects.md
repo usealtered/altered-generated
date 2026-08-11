@@ -39,9 +39,16 @@ Neither stray project served production traffic. All builds **Error**. No custom
 
 - `scripts/vercel-allowlist-check.sh` — hard fail unless project name matches allowlist  
 - `scripts/vercel-deploy-api.sh` / `scripts/vercel-deploy-web.sh` — always `--project` + re-link + allowlist check  
+- **CLI deploy cwd = monorepo root only.** Projects have Root Directory `apps/api` / `apps/web`. Deploying from those subdirs makes Vercel look for a nested `apps/api` (or `apps/web`) and fails with `Root Directory does not exist`.  
 - Never `vercel deploy` from repo root without those scripts  
 - Never `vercel link` / `vercel deploy` without `--project api-generated|web-generated|altered-generated-web`  
 - `.vercel/` stays gitignored (never commit project links)
+
+### Incident 2026-08-11 — CLI deploy from `apps/api` cwd
+
+- `scripts/vercel-deploy-api.sh` previously `cd apps/api` then `vercel deploy --prod`.
+- Project Root Directory is `apps/api`, so the upload lacked that path → production Error (`api-generated-cswur3br7…`).
+- Git-push deploys were fine. Fix: deploy scripts always run from monorepo root.
 
 ### Riley manual cleanup
 
