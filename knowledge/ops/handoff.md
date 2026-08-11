@@ -4,23 +4,37 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (webhook-early fast-ack outside Chat SDK lock — shipping).
+Last updated: 2026-08-11 (webhook-early fast-ack shipped + OV3 proof).
 
 ## HEAD on main
 
-See latest `main`. Fast-ack runs at webhook receipt (`waitUntil` + direct Sendblue), **before** `chat.initialize` / Chat SDK burst lock. Handler only backup-acks if `ack-claimed:` is absent.
+`b046a09` — Fast-ack runs at webhook receipt (`waitUntil` + direct Sendblue), **before** `chat.initialize` / Chat SDK burst lock. Handler only backup-acks if `ack-claimed:` is absent. Final reply SEND stays on `send-lock:*`.
 
-### OV2-B 1786419164 proof (before — bug)
+### OV2-B 1786419164 (before — bug)
 
 | Event | ts (UTC) |
 |---|---|
 | B webhook_received | 03:32:46.385 |
+| Chat SDK `message-queued` B (behind A lock) | ~03:32:46.4 |
 | A main_gen_detached (lock release) | 03:32:47.961 |
 | B handler_start | 03:32:48.220 (**sinceWebhookMs=1835**) |
-| B ack_send_done | 03:32:49.777 |
+| B ack_send_done (handler path) | 03:32:49.777 |
 | A main_gen_start | 03:32:48.654 |
 
-B waited on A's **handler lock during fast-ack**, not A's main-gen. Fix: `dispatchWebhookFastAck` at webhook before `chat.initialize` / lock. After fix, expect B `source: webhook_early` `ack_send_done` with low `sinceWebhookMs` / independent of A's handler.
+B waited on A's **handler lock during A's fast-ack**, not A's main-gen. Mark-read was already webhook-early; fast-ack was still inside the handler.
+
+### OV3 1786419757 (after — fixed)
+
+| Event | ts (UTC) |
+|---|---|
+| A webhook_received | 03:42:37.469 |
+| A fast_ack_start `webhook_early` | 03:42:37.761 |
+| B webhook_received | 03:42:39.384 (**during A's ack send**) |
+| A ack_send_done `webhook_early` | 03:42:39.630 |
+| B fast_ack_start `webhook_early` | 03:42:39.650 (elapsedMs=266) |
+| B ack_send_done `webhook_early` | 03:42:40.799 (elapsedMs=**1415**, skipped=false) |
+
+B never entered the Chat SDK handler for ack. Ack path is fully decoupled from inbound lock / main-gen.
 
 ### Rapid 4-message bug (Riley screenshots)
 
