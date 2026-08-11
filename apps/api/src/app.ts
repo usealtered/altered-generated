@@ -7,8 +7,10 @@ import {
   getAlteredChat,
   parseSendblueDateSent,
   pollCursorJob,
+  rememberWebhookReceivedAt,
   sendblueThreadIdForContact,
   sendMarkReadDirect,
+  setBackgroundScheduler,
   traceLog,
   webhookAgeMs,
 } from "@altered/chat";
@@ -35,6 +37,11 @@ function trackWaitUntil(task: Promise<unknown>) {
     });
   }
 }
+
+// So chat can detach Sonnet main-gen after fast-ack without losing the isolate.
+setBackgroundScheduler(trackWaitUntil);
+
+const MARK_READ_AWAIT_MS = 2000;
 
 app.use("*", logger());
 app.use(
@@ -81,18 +88,19 @@ type SendblueInboundBody = Record<string, unknown>;
 
 /**
  * Earliest possible read receipt: direct Sendblue HTTP, no Chat SDK init.
- * Registered with waitUntil so cold-start initialize cannot delay mark-read.
+ * Caller should await with a short timeout before returning HTTP 200 so the
+ * mark-read is not left solely to waitUntil races under long background turns.
  */
 function earlySendblueReadReceipt(
   body: SendblueInboundBody,
   receivedAt: number,
-) {
+): Promise<unknown> | null {
   const env = getServerEnv();
-  if (!env.SENDBLUE_FROM_NUMBER) return;
+  if (!env.SENDBLUE_FROM_NUMBER) return null;
 
-  if (body.is_outbound === true) return;
-  if (body.status !== "RECEIVED") return;
-  if (typeof body.message_handle !== "string") return;
+  if (body.is_outbound === true) return null;
+  if (body.status !== "RECEIVED") return null;
+  if (typeof body.message_handle !== "string") return null;
 
   const contact = normalizePhone(
     String(body.number ?? body.from_number ?? ""),
@@ -100,7 +108,7 @@ function earlySendblueReadReceipt(
   const from = normalizePhone(
     String(body.sendblue_number ?? body.to_number ?? env.SENDBLUE_FROM_NUMBER),
   );
-  if (!contact || !from || contact === from) return;
+  if (!contact || !from || contact === from) return null;
 
   const messageHandle = body.message_handle;
   const dateSentMs = parseSendblueDateSent(
@@ -117,6 +125,13 @@ function earlySendblueReadReceipt(
   const content =
     typeof body.content === "string" ? body.content.slice(0, 80) : undefined;
 
+  traceLog(trace, "webhook_parsed", {
+    dateSent: dateSentMs ? new Date(dateSentMs).toISOString() : null,
+    dateSentRaw: body.date_sent ?? body.dateSent ?? body.sent_at ?? null,
+    webhookAgeMs: webhookAgeMs(dateSentMs, receivedAt),
+    textPreview: content,
+    service: body.service ?? null,
+  });
   traceLog(trace, "webhook_received", {
     dateSent: dateSentMs ? new Date(dateSentMs).toISOString() : null,
     dateSentRaw: body.date_sent ?? body.dateSent ?? body.sent_at ?? null,
@@ -125,15 +140,17 @@ function earlySendblueReadReceipt(
     service: body.service ?? null,
   });
 
-  // Fire mark-read immediately - do not await Chat SDK initialize.
-  trackWaitUntil(
-    sendMarkReadDirect({
-      contactNumber: contact,
-      fromNumber: from,
-      trace,
-      source: "webhook_early",
-    }),
-  );
+  void rememberWebhookReceivedAt(messageHandle, receivedAt);
+
+  const receipt = sendMarkReadDirect({
+    contactNumber: contact,
+    fromNumber: from,
+    trace,
+    source: "webhook_early",
+  });
+  // Also waitUntil in case await races/timeouts.
+  trackWaitUntil(receipt);
+  return receipt;
 }
 
 app.post("/webhooks/sendblue", async (c) => {
@@ -145,8 +162,16 @@ app.post("/webhooks/sendblue", async (c) => {
     body = {};
   }
 
-  // Receipt first (waitUntil-tracked), before Chat SDK init / handler lock.
-  earlySendblueReadReceipt(body, receivedAt);
+  // Await mark-read briefly BEFORE Chat SDK init / handler lock / HTTP 200.
+  const receipt = earlySendblueReadReceipt(body, receivedAt);
+  if (receipt) {
+    await Promise.race([
+      receipt,
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, MARK_READ_AWAIT_MS),
+      ),
+    ]);
+  }
 
   const chat = getAlteredChat();
   await chat.initialize();

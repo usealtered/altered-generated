@@ -3,12 +3,14 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { Chat } from "chat";
 import { createSendblueAdapter } from "chat-adapter-sendblue";
 import { getServerEnv, normalizePhone } from "@altered/env";
+import { runInBackground } from "./background";
 import { generateFastAck } from "./fast-ack";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
 import { decodeSendblueThreadId } from "./thread-id";
 import { createTrace, type TraceContext, traceLog } from "./trace";
+import { lookupWebhookReceivedAt } from "./webhook-timing";
 
 export { sendblueThreadIdForContact, decodeSendblueThreadId } from "./thread-id";
 
@@ -164,17 +166,23 @@ export function createAlteredChat() {
 
     const phone = resolveInboundPhone(env.SENDBLUE_FROM_NUMBER, message);
     const messageHandle = messageHandleFromRaw(message);
+    const webhookT0 = await lookupWebhookReceivedAt(messageHandle);
+    const sinceWebhookMs =
+      webhookT0 != null ? Math.max(0, handlerStarted - webhookT0) : null;
     const trace = createTrace({
       messageHandle,
       phone,
       threadId: thread.id,
-      t0: handlerStarted,
+      // Prefer webhook t0 so elapsedMs is end-to-end when available.
+      t0: webhookT0 ?? handlerStarted,
     });
 
     traceLog(trace, "handler_start", {
       textPreview: text.slice(0, 80),
       skipped: context?.skipped?.length ?? 0,
       queueTotal: context?.totalSinceLastHandler ?? 1,
+      sinceWebhookMs,
+      handlerStartedAt: new Date(handlerStarted).toISOString(),
     });
     console.info("[altered-ops] inbound message", {
       phone,
@@ -183,6 +191,7 @@ export function createAlteredChat() {
       textPreview: text.slice(0, 80),
       skipped: context?.skipped?.length ?? 0,
       burstTotal: context?.totalSinceLastHandler ?? 1,
+      sinceWebhookMs,
     });
 
     const adapter = chat.getAdapter("sendblue") as SendblueAdapterLike | undefined;
@@ -240,41 +249,57 @@ export function createAlteredChat() {
     // Non-critical path after first bubble is out.
     void thread.subscribe().catch(() => undefined);
 
-    try {
-      const reply = await handleOperatorMessage({
-        ctx,
-        chatThreadId: thread.id,
-        phone,
-        text,
-        outbound,
-        trace,
-      });
-      traceLog(trace, "turn_complete", {
-        replyLen: reply.length,
-        sends: outbound.sent.length,
-        totalMs: Date.now() - handlerStarted,
-      });
-      console.info("[altered-ops] turn complete", {
-        phone,
-        cid: trace.cid,
-        replyLen: reply.length,
-        sends: outbound.sent.length,
-        totalMs: Date.now() - handlerStarted,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      traceLog(trace, "turn_error", { error: msg });
-      console.error("[altered-ops] inbound handler failed", {
-        phone,
-        cid: trace.cid,
-        error: msg,
-      });
-      try {
-        await outbound.send(`Error handling message: ${msg}`.slice(0, 400));
-      } catch {
-        /* ignore secondary send failure */
-      }
-    }
+    // CRITICAL: do NOT await Sonnet/main tools while holding the Chat SDK
+    // inbound Redis lock. Overlapping texts were waiting 20-60s+ for the prior
+    // turn to finish before their fast-ack could run. Detach main gen to
+    // waitUntil and return so the lock releases after first bubble.
+    traceLog(trace, "main_gen_detached", {
+      handlerMs: Date.now() - handlerStarted,
+      sinceWebhookMs,
+    });
+
+    runInBackground(
+      (async () => {
+        try {
+          const reply = await handleOperatorMessage({
+            ctx,
+            chatThreadId: thread.id,
+            phone,
+            text,
+            outbound,
+            trace,
+          });
+          traceLog(trace, "turn_complete", {
+            replyLen: reply.length,
+            sends: outbound.sent.length,
+            totalMs: Date.now() - handlerStarted,
+            sinceWebhookMs,
+          });
+          console.info("[altered-ops] turn complete", {
+            phone,
+            cid: trace.cid,
+            replyLen: reply.length,
+            sends: outbound.sent.length,
+            totalMs: Date.now() - handlerStarted,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          traceLog(trace, "turn_error", { error: msg });
+          console.error("[altered-ops] inbound handler failed", {
+            phone,
+            cid: trace.cid,
+            error: msg,
+          });
+          try {
+            await outbound.send(
+              `Error handling message: ${msg}`.slice(0, 400),
+            );
+          } catch {
+            /* ignore secondary send failure */
+          }
+        }
+      })(),
+    );
   };
 
   chat.onDirectMessage(async (thread, message, _channel, context) => {

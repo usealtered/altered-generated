@@ -4,60 +4,46 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (pipeline tracing + direct mark-read).
+Last updated: 2026-08-11 (detach main-gen from inbound lock).
 
 ## HEAD on main
 
-See latest `main`. Fast LLM first bubble + Redis concurrency locks + **structured `[altered-ops:trace]` pipeline logs**.
+See latest `main`. Fast LLM ack + structured traces + **main Sonnet detached from Chat SDK inbound lock**.
 
-### Read-receipt / "Test" latency finding (2026-08-11)
+## Root cause: 60s read-receipt / first-ack (hard numbers)
 
-Riley reported 60s+ before the iMessage read indicator on "Test"/"Testing".
+Riley confirmed webhook hits us immediately. Logs agree for real messages:
 
-| Stage | Evidence |
-|---|---|
-| Our webhook receive → HTTP 200 | **10–335ms** |
-| Our mark-read API success | logged immediately after webhook (sub-second after receive) |
-| Fast ack first bubble | **handlerMs ≈ 1.7s** (gen≈1.2s, send≈0.5s) |
-| Full Sonnet turn | separate; **~23s** on "Testing" — not the read indicator |
+| Message | webhookAgeMs | early receipt apiMs | handlerMs→first ack | main gen |
+|---|---:|---:|---:|---:|
+| Latency probe 02:30:02 | (pre-trace) | ~receipt after 283ms http | **1725** | 8.4s total |
+| Testing 02:32:28 | (pre-trace) | ~after 335ms http | **1741** | 23.5s total |
+| Trace probe | 65833* | **266** | **1768** | 10.8s |
+| "I don't believe…" 03:19:04 | **3244** | **197** | **1819** | **20768** genMs |
+| "No this time…" 03:19:45 | **1669** | **107** | **1790** | (detached after fix) |
 
-**Root cause of the 60s read indicator:** not our LLM/queue after webhook arrival. Delay is **upstream of our webhook** (Sendblue delivering the inbound webhook late) and/or **downstream of mark-read** (Sendblue/Apple delivering the read receipt to Riley's phone). We did not previously log Sendblue `date_sent`, so webhookAgeMs was invisible — now logged.
+\*Trace probe `webhookAgeMs` was our synthetic `date_sent` 65s in the past — not a real Sendblue delay.
 
-### Timing (fast-ack prod probe)
+**What ate 60s on OUR side:** Chat SDK `queue` holds a Redis inbound lock for the **entire** `onMessage`, including Sonnet tool loop (often 20–60s+, `ai_events` up to 111s). The next text’s handler (fast-ack + backup receipt) could not start until that lock released. Solo messages looked fine (~2s); overlap / back-to-back texts looked like 60s “Sendblue” lag.
 
-| Era | First bubble |
-|---|---|
-| Before (full Sonnet tool loop) | `ops_imessage` **12s–111s** |
-| Hardcoded ack | ~310ms send + 700ms burst (rejected) |
-| Fast LLM ack | **handlerMs=1725** (genMs=1265, sendMs=455) |
+**Fix shipped:** after fast-ack send, `runInBackground(mainGen)` via Vercel `waitUntil` and **return** so the inbound lock releases. Mark-read is awaited (≤2s) before HTTP 200.
 
-### Debug recipe (2 minutes)
+## Debug recipe
 
 ```bash
 npx vercel logs --project api-generated --scope altered --environment production --since 30m --query 'altered-ops:trace' --json
-# Filter one message: query message_handle / cid
 ```
 
-Stages: `webhook_received` (has `webhookAgeMs`) → `read_receipt_start/done` (`apiMs`) → `webhook_http_ok` → `handler_start` → `fast_ack_*` → `status_send_*` → `main_gen_*` → `turn_complete`.
-
-## Already shipped (do not redo)
-
-- waitUntil webhook, typing, multi-send, sanitizer, forced-tool notify.
-- Fast LLM ack (`generateFastAck` / `ops_imessage_ack`).
-- Direct early mark-read (no Chat SDK init); adapter `sendReadReceipts: false`.
-- Pipeline trace logger (`packages/chat/src/trace.ts`).
-- Redis send-lock + status-ack dedupe + notify drain.
-- Ship to main; Vercel token only `api-generated`.
+Key fields: `webhookAgeMs`, `apiMs` (receipt), `sinceWebhookMs` (handler_start — queue/lock delay), `handlerMs`, `main_gen_detached`.
 
 ## Still open
 
 1. Lock deposit amount + `PRIMARY_CHECKOUT_URL`.
-2. Optional live smoke: rapid double-text + two Cursor finishes → one merged notice.
-3. Main-turn Sonnet latency (separate from first bubble / read receipt).
-4. Optional features: QStash wake-ups, coding-agent follow-ups, PNG status cards.
+2. Optional live smoke: rapid double-text while Sonnet running → second `sinceWebhookMs` should stay low + fast-ack ~2s.
+3. Main-turn Sonnet latency (now non-blocking for next inbound).
+4. Optional features: QStash wake-ups, follow-up questions, PNG cards.
 
 ## Domains / numbers
 
 - API: `https://generated.api.usealtered.com`
-- Sendblue webhook: `https://generated.api.usealtered.com/webhooks/sendblue`
 - Agent: `+13054098546` / Operator: `+12368370221`

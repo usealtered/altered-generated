@@ -46,3 +46,8 @@ export {
   type TraceContext,
   type TraceStage,
 } from "./trace";
+export { setBackgroundScheduler, runInBackground } from "./background";
+export {
+  rememberWebhookReceivedAt,
+  lookupWebhookReceivedAt,
+} from "./webhook-timing";

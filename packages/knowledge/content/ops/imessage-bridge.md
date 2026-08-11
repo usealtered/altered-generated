@@ -14,7 +14,7 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
 5. Chat SDK **queue** concurrency (per-thread Redis lock; no mandatory burst debounce). Overlapping inbound drains with `context.skipped`.
 6. **Fast LLM ack** (`generateFastAck`): Haiku/`CHAT_ACK_MODEL_ID`, last 1 Redis history turn, no tools, `maxOutputTokens: 40`, 2.2s abort → fallback "On it.". First bubble before subscribe/DB/main agent. Redis `status-ack:*` SET NX skips duplicates. Surface `ops_imessage_ack`.
-7. Main AI SDK `generateText` with full tools (`toolChoice: "required"` + `done`) - no raw assistant dumps. Must not send a second status ack.
+7. **Inbound lock released after fast-ack** — main Sonnet/`generateText` runs via `waitUntil` (`main_gen_detached`) so the next text is not blocked 20-60s. Forced tools (`toolChoice: "required"` + `done`). Must not send a second status ack.
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status). Code sanitizer strips em dashes/markdown.
 9. Per-thread outbound send lock (in-process + Redis SET NX) serializes replies vs background completion notices. Lock key is the canonical base64url Sendblue thread id.
 10. Cursor completions: QStash poll → Redis debounce (~3s) + drain lock → forced-tool plain-text summary (never raw markdown tables)
@@ -27,9 +27,10 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 | Layer | Mechanism | Behavior |
 |---|---|---|
-| Chat SDK inbound | `concurrency: { strategy: "queue" }` + Redis state locks | Per-thread serialize handlers; no mandatory 700ms debounce; latest + skipped[] on drain |
+| Chat SDK inbound | `concurrency: { strategy: "queue" }` + Redis state locks | Serializes handlers; lock **must** release after fast-ack (main gen detached) |
 | Sendblue adapter (`#integration` fork) | `sendReadReceipts: false` (we own mark-read) | Chat SDK locks still serialize inbound handlers |
-| Our webhook | Direct `sendMarkReadDirect` + `waitUntil` before `chat.initialize()` | Mark-read not blocked by SDK cold start; timed `apiMs` in traces |
+| Our webhook | Await direct mark-read (≤2s) + `waitUntil` before/around init | Receipt completes in-request; `webhookAgeMs` + `apiMs` traced |
+| Handler | `sinceWebhookMs` from Redis `trace:wh:*` | Measures queue/lock delay webhook→handler_start |
 | Our outbound | `withThreadSendLock(threadId)` in-process + Redis `send-lock:*` | Serializes `thread.post` and completion `sdk.messages.send` on the same canonical thread id |
 | Status pings | Redis `status-ack:*` SET NX (~12s) + fast LLM ack | At most one status bubble per thread per short window |
 | Cursor completions | Redis list + token debounce + `notify:drain:*` lock + QStash flush | Near-simultaneous finishes merge into one summarized iMessage |

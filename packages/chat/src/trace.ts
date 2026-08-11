@@ -19,6 +19,7 @@ export type TraceContext = {
 
 export type TraceStage =
   | "webhook_received"
+  | "webhook_parsed"
   | "read_receipt_start"
   | "read_receipt_done"
   | "read_receipt_error"
@@ -28,6 +29,7 @@ export type TraceStage =
   | "fast_ack_done"
   | "status_send_start"
   | "status_send_done"
+  | "main_gen_detached"
   | "main_gen_start"
   | "main_gen_done"
   | "outbound_send_start"
