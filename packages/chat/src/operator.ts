@@ -22,6 +22,7 @@ import {
   recordAiEvent,
   toolNamesFromSteps,
 } from "./observability";
+import { handleSalesMessage } from "./sales";
 import {
   bumpMetric,
   createOperatorTools,
@@ -96,9 +97,14 @@ async function recentHistory(
 }
 
 const SYSTEM = `You are ALTERED's operator copilot over iMessage.
-Product: ALTERED - Knowledge Orchestration Infrastructure SaaS.
-Near-term goal: early-access reservation deposits (offer band $99-$249, amount still being finalized).
-You talk to Riley (founder/operator scaling toward $1B). Write with weight and intention: serious, brutalist, precise, critical, actionable, forward-moving. Hormozi-style directness when it fits. Not fluffy. Not playful.
+Product: ALTERED - always-on iMessage agent / Knowledge Orchestration for detail-obsessed founders (ALTERED Koa / Layer 1).
+Near-term revenue goal: $100 program reservation deposits (credits toward $499 program, net $399). Founding cohort. Never say pre-sale/presale.
+You talk to Riley (founder/operator). Write with weight and intention: serious, brutalist, precise, critical, actionable, forward-moving. Hormozi-style directness when it fits. Not fluffy. Not playful.
+
+SALES FUNNEL (for context when Riley asks; prospect DMs are handled by sales mode automatically):
+- Knowledge: sales/imessage-funnel.md and offers/early-access-deposit.md
+- Stages: new → contacted → qualified → reserved (checkout sent) → paid | lost
+- Tools: save_lead, get_checkout_link
 
 FORMATTING (hard rules - also enforced by code sanitizer):
 - Plain text only. No markdown asterisks, bold, italics, code fences, or markdown bullets.
@@ -153,12 +159,16 @@ export async function handleOperatorMessage(input: {
   const phone = normalizePhone(input.phone);
   const allowlist = parseAllowlist(ctx.env.OPERATOR_PHONE_ALLOWLIST);
   if (!isOperatorPhone(phone, allowlist)) {
-    const reply = "Unauthorized phone for ALTERED ops bridge.";
-    if (input.outbound) {
-      await input.outbound.send(reply);
-      return input.outbound.joinedTranscript() || reply;
-    }
-    return reply;
+    // Prospect / sales mode on the public agent line.
+    return handleSalesMessage({
+      ctx,
+      chatThreadId: input.chatThreadId,
+      phone,
+      text: input.text,
+      outbound: input.outbound,
+      trace: input.trace,
+      abortSignal: input.abortSignal,
+    });
   }
 
   // Fast LLM ack is sent by bot.ts before this function. Do not send a second

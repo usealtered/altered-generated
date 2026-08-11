@@ -60,3 +60,10 @@
   color: var(--signal);
   line-height: 1.5;
 }
+
+.hint {
+  margin: 0;
+  color: var(--mist);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}

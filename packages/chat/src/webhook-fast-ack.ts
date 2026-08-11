@@ -1,4 +1,3 @@
-import { isOperatorPhone, parseAllowlist } from "@altered/env";
 import { createOperatorContext } from "./operator-context";
 import { generateFastAck } from "./fast-ack";
 import { sendImessageDirect } from "./sendblue-send";
@@ -14,6 +13,7 @@ import {
 /**
  * Fast-ack that runs at webhook receipt - NEVER waits on Chat SDK inbound lock
  * or another message's main-gen / fast-ack handler.
+ * Runs for both operator (Riley) and sales prospects.
  */
 export async function dispatchWebhookFastAck(input: {
   phone: string;
@@ -31,10 +31,6 @@ export async function dispatchWebhookFastAck(input: {
 }> {
   const { phone, fromNumber, text, messageHandle, threadId, trace } = input;
   const ctx = createOperatorContext();
-  const allowlist = parseAllowlist(ctx.env.OPERATOR_PHONE_ALLOWLIST);
-  if (!isOperatorPhone(phone, allowlist)) {
-    return { ok: false, skipped: true, error: "not_allowlisted" };
-  }
 
   // Per-messageHandle claim - overlap B must not be blocked by A's claim.
   const claimed = await claimThreadStatusAck(threadId, messageHandle);

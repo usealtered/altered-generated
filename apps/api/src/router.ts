@@ -71,6 +71,25 @@ export const router = os.router({
         phone: lead.phone ?? undefined,
         payload: { notes: input.notes, utm: input.utm },
       });
+      if (input.wantDepositCheckout && env.PRIMARY_CHECKOUT_URL) {
+        await db.insert(leadEvents).values({
+          leadId: lead.id,
+          type: "checkout_redirect",
+          toStatus: status,
+          source: input.source ?? "web",
+          phone: lead.phone ?? undefined,
+          payload: { checkoutUrlSet: true },
+        });
+      } else if (input.wantDepositCheckout && !env.PRIMARY_CHECKOUT_URL) {
+        await db.insert(leadEvents).values({
+          leadId: lead.id,
+          type: "checkout_missing",
+          toStatus: status,
+          source: input.source ?? "web",
+          phone: lead.phone ?? undefined,
+          payload: { checkoutUrlSet: false },
+        });
+      }
     }
 
     await db

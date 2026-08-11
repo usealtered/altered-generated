@@ -940,20 +940,24 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     get_checkout_link: tool({
       description:
-        "Return the early-access deposit checkout URL (PRIMARY_CHECKOUT_URL).",
+        "Return the $100 program reservation deposit checkout URL (PRIMARY_CHECKOUT_URL). Credits toward \$499 program (net \$399).",
       inputSchema: z.object({}),
       execute: async () => {
         const amountCents = await resolveDepositAmountCents(ctx.knowledgeRoot);
         if (!ctx.env.PRIMARY_CHECKOUT_URL) {
           return {
             error:
-              "PRIMARY_CHECKOUT_URL not set yet. Add a Stripe Payment Link when ready.",
+              "PRIMARY_CHECKOUT_URL not set yet. Add a Stripe Payment Link for $100 when ready.",
             amountCents,
+            programCents: 49900,
+            netCents: 39900,
           };
         }
         return {
           url: ctx.env.PRIMARY_CHECKOUT_URL,
           amountCents,
+          programCents: 49900,
+          netCents: 39900,
         };
       },
     }),

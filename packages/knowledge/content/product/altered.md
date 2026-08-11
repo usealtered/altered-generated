@@ -4,27 +4,29 @@ title: ALTERED product
 
 # ALTERED
 
-ALTERED is Knowledge Orchestration Infrastructure SaaS.
+ALTERED is the always-on iMessage layer for detail-obsessed technical founders (ALTERED Koa / Layer 1 under Knowledge Orchestration Infrastructure).
 
 ## One-liner
 
-Turn fragmented company knowledge into an operable system humans and agents can run.
+Never lose your best thinking again.
 
-## ICP (assumed until confirmed)
+## ICP
 
-- Series A–C B2B teams drowning in Slack + Notion + tribal knowledge
-- Ops / founders / knowledge leads who feel retrieval tools failed them
-- Buyers who will pay for speed-to-decision, not "another chatbot"
+- Detail-obsessed technical founders building novel products
+- Pain: pressure pivots, redundant thinking, unfinished shipping
+- Desire: stay locked on the goal until it ships
 
 ## North-star revenue motion (now)
 
-Generate **$250+/day** via **early-access program reservation deposits**.
+**$100 program reservation deposits** → credits toward **$499** program (net **$399**).
 
-Deposit band: **$99–$249** (placeholder **$149** in knowledge until locked). Checkout via `PRIMARY_CHECKOUT_URL`.
+Founding cohort. Limited seats. Checkout via `PRIMARY_CHECKOUT_URL`.
+
+See `offers/early-access-deposit.md` and `ops/marketing-discrepancies.md`.
 
 ## Offer shape
 
-1. Public early-access page captures lead
-2. Stripe Checkout collects reservation deposit
-3. Operator gets iMessage ping (when wired) + lead row in Neon
-4. Human follow-up converts reserved → founding customer
+1. Landing (`/early-access` or API `/reserve`) captures lead
+2. Stripe Payment Link collects $100 reservation deposit
+3. iMessage sales line `+13054098546` qualifies → pitches → closes
+4. `lead_events` tracks stages end to end

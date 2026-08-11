@@ -64,9 +64,11 @@ Before ending a long chat, ensure:
 
 ## Offer / product
 
-- Deposit band **$99–$249**; placeholder **$149** in knowledge until locked.
-- Checkout: `PRIMARY_CHECKOUT_URL` (static link; no Stripe SDK yet).
+- **LOCKED:** $100 program reservation deposit (credits toward $499 program → net $399).
+- Framing: reservation / founding cohort — never pre-sale/presale in copy.
+- Checkout: `PRIMARY_CHECKOUT_URL` (static Stripe Payment Link; no Stripe SDK yet).
 - AI: OpenRouter via `OPENROUTER_API_KEY` + `CHAT_AGENT_MODEL_ID`.
+- Discrepancies vs `usealtered/altered` settlements: `knowledge/ops/marketing-discrepancies.md`.
 
 ## Phones / domains
 

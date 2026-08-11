@@ -24,6 +24,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { router } from "./router";
+import { reservePageHandler } from "./reserve-page";
 
 const app = new Hono();
 const rpc = new RPCHandler(router);
@@ -57,6 +58,7 @@ app.get("/", (c) =>
   c.json({
     name: "altered-api",
     health: "/health",
+    reserve: "/reserve",
     rpc: "/rpc/*",
     webhooks: [
       "/webhooks/sendblue",
@@ -66,6 +68,9 @@ app.get("/", (c) =>
     ],
   }),
 );
+
+app.get("/reserve", (c) => reservePageHandler(c));
+app.get("/early-access", (c) => c.redirect("/reserve", 302));
 
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpc.handle(c.req.raw, {

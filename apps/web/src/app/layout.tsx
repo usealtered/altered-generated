@@ -15,9 +15,9 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ALTERED — Early Access",
+  title: "ALTERED — $100 founding reservation",
   description:
-    "Knowledge Orchestration Infrastructure. Reserve founding access with a deposit.",
+    "Never lose your best thinking again. $100 reservation deposit credits toward the $499 ALTERED program.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

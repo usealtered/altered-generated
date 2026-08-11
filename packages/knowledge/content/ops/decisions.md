@@ -20,6 +20,13 @@ title: Decisions log
 - Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
 - Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.
 
+## 2026-08-11 (sales funnel)
+
+- **Offer LOCKED:** $100 program reservation deposit; credits toward $499 (net $399). Never call it pre-sale in copy. See `offers/early-access-deposit.md` + `ops/marketing-discrepancies.md` (overrides altered S4 no-pre-sell + $221 price).
+- Dual-mode iMessage: allowlisted phones → ops copilot; everyone else → sales funnel (`packages/chat/src/sales.ts`).
+- Interim money page: `GET /reserve` on api-generated until `generated.usealtered.com` web deploy exists.
+- Outbound templates in `sales/outbound-templates.md` (manual; social APIs blocked on keys).
+
 ## 2026-08-11
 
 - **ui-message / iMessage images:** Sendblue send-message has no base64/blob body — only `media_url`. Hosting choice: Sendblue multipart `/api/upload-file` (returns CDN URL) for generated/ephemeral images. No Vercel Blob/S3 stood up (none in env; unnecessary given Upload-file). Package `@altered/ui-message` + chat `send_ui_message` / `outbound.sendMedia`.

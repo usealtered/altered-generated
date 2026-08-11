@@ -3,8 +3,7 @@
 import { useState, useTransition } from "react";
 import styles from "./form.module.css";
 
-const depositLabel =
-  process.env.NEXT_PUBLIC_DEPOSIT_LABEL ?? "$99–$249";
+const depositLabel = process.env.NEXT_PUBLIC_DEPOSIT_LABEL ?? "$100";
 
 export function EarlyAccessForm() {
   const [pending, startTransition] = useTransition();
@@ -78,6 +77,9 @@ export function EarlyAccessForm() {
       <button className={styles.submit} type="submit" disabled={pending}>
         {pending ? "Reserving…" : `Reserve — ${depositLabel}`}
       </button>
+      <p className={styles.hint}>
+        Credits toward the $499 program (net $399). Text +13054098546 anytime.
+      </p>
       {error ? <p className={styles.error}>{error}</p> : null}
     </form>
   );

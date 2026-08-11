@@ -1,13 +1,34 @@
 ---
-title: Early access deposit offer
+title: Early access deposit offer (LOCKED)
 ---
 
-# Early access reservation deposit
+# Program reservation deposit — LOCKED
 
 ## Status
 
-Offer amount **pending** — band **$99–$249**. Placeholder default **$149** until Riley locks it.
+**LOCKED 2026-08-11** by Riley for the sales-funnel sprint.
+
+| Field | Value |
+|---|---|
+| Deposit | **$100** USD |
+| Framing | Program **reservation deposit** (never "pre-sale" / "presale" in copy) |
+| Credits | $100 off **$499** program price → net **$399** |
+| Program | 6-month, AI-allowance based, part-service founder-customization within ALTERED |
+| Seats | Limited founding-cohort seats at this deposit price |
 
 ## Checkout
 
-Static Stripe Payment Link via `PRIMARY_CHECKOUT_URL` (no Stripe SDK required yet).
+Static Stripe Payment Link via `PRIMARY_CHECKOUT_URL` (no Stripe SDK required for v1).
+
+If unset, landing + iMessage must still capture the lead and say the reservation link is being prepared — never invent a fake checkout URL.
+
+## Copy rules
+
+- Say **reservation deposit** / **reserve your seat** / **founding cohort**.
+- Do **not** say pre-sale, presale, or pre-sell in customer-facing copy.
+- Brand: **ALTERED** (product surface may reference **ALTERED Koa** / Layer 1).
+- No em dashes. Hormozi-direct.
+
+## Prior band
+
+Earlier testing band was $99–$249 (placeholder $149). **$100 is the final call for now.**

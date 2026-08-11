@@ -91,6 +91,17 @@
   animation: rise 0.9s 0.18s ease both;
 }
 
+.headline {
+  margin: 1.35rem 0 0;
+  max-width: 36rem;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.35rem, 3.5vw, 2rem);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  animation: rise 0.9s 0.16s ease both;
+}
+
 .ctaRow {
   margin-top: 2rem;
   display: flex;
