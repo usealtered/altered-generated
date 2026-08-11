@@ -30,7 +30,10 @@ title: Decisions log
 - Sendblue adapter: private fork `inducingchaos/chat-adapter-sendblue#integration` with `sendReadReceipts: true`.
 - `ensureStatus` must be concurrency-safe: AI SDK can run tools in parallel and previously double-sent the status bubble.
 - Read receipts must be waitUntil-tracked at the webhook layer so overlapping turns cannot freeze mark-read.
-- Inbound concurrency: Chat SDK `burst` (not default `drop`). Outbound: per-thread send lock. Completions: Redis debounce + forced-tool summary.
+- Inbound concurrency: Chat SDK `queue` (not default `drop`, not burst). Outbound: per-thread send lock (in-process + Redis). Completions: Redis debounce + drain lock + forced-tool summary.
 - Operator + notify paths use forced tool calling (`toolChoice: required` + `done` without execute). No raw model/agent dumps to Riley.
 - Em-dash/markdown exclusion enforced by `sanitizeImessageText` before every outbound send, not prompt memory alone.
 - Riley concerns are implicit change requests; coding agents own Vercel/DB/Redis/OpenRouter audit by default.
+- **Deterministic/canned status acks banned** (never auto-send "Checking that now."). First bubble is `generateFastAck` (tiny Haiku call); Redis SET NX dedupes under overlap.
+- Notify/completion sends must use the canonical base64url Sendblue thread id for the outbound lock (raw E.164 keys do not match Chat SDK thread ids).
+- Sendblue adapter fork does not serialize outbound; Chat SDK locks inbound only.

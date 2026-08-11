@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import { createOutboundSession } from "./outbound";
+import { useMemoryThreadLocksForTests } from "./thread-lock";
 
 describe("createOutboundSession", () => {
+  before(() => {
+    useMemoryThreadLocksForTests();
+  });
+
   it("sends typing before each bubble and splits substantial paragraphs", async () => {
     const posts: string[] = [];
     const events: string[] = [];

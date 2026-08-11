@@ -60,6 +60,7 @@ Before ending a long chat, ensure:
 - Ask Riley in chat / iMessage for decisions - not via inventing repo files as questions.
 - Keep iMessage replies short; put durable detail in knowledge/DB.
 - Never relay raw Cursor agent markdown tables/bullets. Summarize in plain text (forced tool-calling path).
+- **No deterministic/canned status acks** (never auto-send "Checking that now."). If a status ping is needed, use a short varied model-authored line (`kind=status`), Redis-deduped.
 
 ## Offer / product
 

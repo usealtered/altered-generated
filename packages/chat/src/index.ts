@@ -26,5 +26,10 @@ export {
   flushCompletionNotices,
   COMPLETION_AGG_WINDOW_SEC,
 } from "./notify";
-export { withThreadSendLock } from "./thread-lock";
+export {
+  withThreadSendLock,
+  claimThreadStatusAck,
+  STATUS_ACK_TTL_SEC,
+} from "./thread-lock";
+export { sendblueThreadIdForContact } from "./thread-id";
 export { generateFastAck } from "./fast-ack";

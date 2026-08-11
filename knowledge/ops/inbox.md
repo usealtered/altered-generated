@@ -20,3 +20,4 @@ Append-only notes from iMessage `remember` commands and operator decisions.
 - Do not re-block the webhook by awaiting full LLM before HTTP 200 (that was briefly on main and wrong for latency).
 - Production audit confirmed waitUntil (ACK 5-326ms vs prior 9-62s). Fixed parallel `ensureStatus` double-send. Cleaned stale `dev_tasks`. See `handoff.md`.
 - Follow-up batch: read-receipt waitUntil race, Chat SDK burst concurrency, completion debounce+forced-tool summary, outbound sanitizer, AGENTS self-fix/audit defaults.
+- Concurrency workstream: Redis cross-isolate send locks + status-ack SET NX; fixed notify lock key (base64url); notify drain lock; removed canned "Checking that now." (banned).

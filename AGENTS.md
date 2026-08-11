@@ -41,7 +41,8 @@ Riley and the iMessage copilot should not have to spell this audit checklist out
 
 - Webhook must ACK immediately via Chat SDK + Vercel `waitUntil`. Never block HTTP 200 on the full LLM turn.
 - Read receipts must fire immediately (waitUntil-tracked), independent of overlapping turns / status sends.
-- Inbound concurrency: Chat SDK `burst` (per-thread lock + short debounce). Outbound: per-thread send lock. Cursor completion notices: Redis debounce + forced-tool summary (never raw markdown dumps).
+- Inbound concurrency: Chat SDK `queue` (per-thread Redis lock; no mandatory burst debounce). Outbound: per-thread send lock (in-process + Redis `send-lock:*` on canonical base64url thread id). Cursor completion notices: Redis debounce + drain lock + forced-tool summary (never raw markdown dumps).
+- No canned deterministic status ack ("Checking that now." banned). Fast LLM ack (`generateFastAck`) is the first bubble; Redis `status-ack:*` dedupes under overlap.
 - Outbound text passes a code sanitizer (no em dashes, strip markdown) before Sendblue.
 
 ## Vercel env pull (api-generated only)

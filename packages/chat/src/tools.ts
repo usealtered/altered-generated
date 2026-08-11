@@ -120,27 +120,18 @@ export type SessionRefs = {
   outbound?: OutboundSession;
 };
 
-const MESSAGING_TOOLS = new Set(["send_message", "start_typing"]);
-
+/**
+ * Previously wrapped every tool to auto-send a canned "Checking that now."
+ * status. That caused duplicate/deterministic acks under parallel tool calls
+ * and is banned. Status pings are model-authored via send_message(kind=status)
+ * and Redis-deduped in the outbound session.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function wrapToolsForOutbound<T extends Record<string, any>>(
   tools: T,
-  outbound?: OutboundSession,
+  _outbound?: OutboundSession,
 ): T {
-  if (!outbound) return tools;
-  const wrapped = { ...tools };
-  for (const [name, def] of Object.entries(tools)) {
-    if (MESSAGING_TOOLS.has(name) || typeof def?.execute !== "function") continue;
-    const original = def.execute;
-    wrapped[name as keyof T] = {
-      ...def,
-      execute: async (input: unknown, options: unknown) => {
-        await outbound.ensureStatus("Checking that now.");
-        return original(input, options);
-      },
-    };
-  }
-  return wrapped;
+  return tools;
 }
 
 async function bindThreadAgent(
@@ -162,7 +153,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
   const tools = {
     send_message: tool({
       description:
-        "Send one plain-text iMessage bubble to Riley now. Call multiple times for multi-part replies. The runtime already sent a status ack - use kind=reply for answers (kind=status only if you truly need another short progress ping, max ~80 chars). Prefer \\n\\n inside a bubble or multiple calls for structure. No markdown. No em dashes.",
+        "Send one plain-text iMessage bubble to Riley now. Call multiple times for multi-part replies. The runtime already sent a fast LLM status ack - use kind=reply for answers (do not send another status ack or the canned phrase Checking that now). Prefer \\n\\n inside a bubble or multiple calls for structure. No markdown. No em dashes.",
       inputSchema: z.object({
         text: z.string().min(1).max(1400),
         kind: z.enum(["status", "reply"]).optional().default("reply"),

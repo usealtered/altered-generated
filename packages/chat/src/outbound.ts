@@ -3,7 +3,10 @@ import {
   splitImessageParts,
   truncateForImessage,
 } from "@altered/cursor-bridge";
-import { withThreadSendLock } from "./thread-lock";
+import {
+  claimThreadStatusAck,
+  withThreadSendLock,
+} from "./thread-lock";
 
 export type ThreadTransport = {
   id: string;
@@ -17,6 +20,9 @@ export type SendKind = "status" | "reply";
 /**
  * Multi-send iMessage session: typing before each outbound, optional status ping
  * before slow tool work, paragraph-aware splitting, code-level sanitizer.
+ *
+ * Status bubbles are Redis-claimed per thread so overlapping turns / isolates
+ * cannot spam duplicate acks. There is no canned deterministic ack phrase.
  */
 export function createOutboundSession(transport: ThreadTransport) {
   const sent: string[] = [];
@@ -33,6 +39,12 @@ export function createOutboundSession(transport: ThreadTransport) {
   async function sendRaw(text: string, kind: SendKind) {
     const cleaned = sanitizeImessageText(text);
     if (!cleaned) return;
+
+    if (kind === "status") {
+      // Cross-isolate / cross-turn dedupe for status pings.
+      const claimed = await claimThreadStatusAck(transport.id);
+      if (!claimed) return;
+    }
 
     const parts =
       kind === "status"
@@ -68,16 +80,20 @@ export function createOutboundSession(transport: ThreadTransport) {
       await typing();
     },
     async send(text: string, kind: SendKind = "reply") {
+      const before = sent.length;
       await sendRaw(text, kind);
+      const partsSent = sent.length - before;
       return {
         ok: true as const,
         kind,
-        parts: kind === "status" ? 1 : splitImessageParts(sanitizeImessageText(text)).length,
+        skipped: partsSent === 0,
+        parts: partsSent,
       };
     },
     /**
-     * One short ack before tool work if nothing has gone out yet.
-     * Safe under parallel tool execution (AI SDK can run tools concurrently).
+     * Optional short progress ping. Safe under parallel tool execution.
+     * Prefer fast-ack / model-authored status; this is a helper only.
+     * Duplicate status claims within the Redis TTL are skipped.
      */
     async ensureStatus(fallback = "On it.") {
       if (statusInFlight) {
@@ -85,10 +101,20 @@ export function createOutboundSession(transport: ThreadTransport) {
         return { skipped: true as const };
       }
       if (statusSent || sent.length > 0) return { skipped: true as const };
+      const cleaned = sanitizeImessageText(fallback);
+      if (!cleaned) return { skipped: true as const };
+
+      const before = sent.length;
+      statusInFlight = sendRaw(cleaned, "status").then(() => undefined);
+      try {
+        await statusInFlight;
+      } finally {
+        statusInFlight = null;
+      }
+      const didSend = sent.length > before;
+      // Mark handled even when Redis claim skips - do not retry this turn.
       statusSent = true;
-      statusInFlight = sendRaw(fallback, "status").then(() => undefined);
-      await statusInFlight;
-      return { skipped: false as const };
+      return { skipped: !didSend };
     },
     /**
      * Leftover model text should rarely be used - preferred path is send_message tool.

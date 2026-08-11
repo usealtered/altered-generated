@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { withThreadSendLock } from "./thread-lock";
+import { describe, it, before } from "node:test";
+import {
+  useMemoryThreadLocksForTests,
+  withThreadSendLock,
+} from "./thread-lock";
 
 describe("withThreadSendLock", () => {
+  before(() => {
+    useMemoryThreadLocksForTests();
+  });
+
   it("serializes concurrent work on the same thread key", async () => {
     const order: string[] = [];
     let releaseA!: () => void;

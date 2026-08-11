@@ -7,6 +7,7 @@ import {
 import type { OperatorContext } from "./operator-context";
 import { createOpenRouter, chatAgentModelId } from "./model";
 import { extractUsage, recordAiEvent } from "./observability";
+import { sendblueThreadIdForContact } from "./thread-id";
 import { withThreadSendLock } from "./thread-lock";
 
 export type CompletionNotice = {
@@ -68,6 +69,8 @@ export async function enqueueCompletionNotice(
   return { queued: true, flushScheduled: true };
 }
 
+const DRAIN_LOCK_KEY = (phone: string) => `notify:drain:${phone}`;
+
 /** Drain + send if this flush token is still the latest (debounce). */
 export async function flushCompletionNotices(
   ctx: OperatorContext,
@@ -81,28 +84,47 @@ export async function flushCompletionNotices(
     return { flushed: 0, skipped: true };
   }
 
-  const raw = await ctx.redis.lrange(AGG_KEY(phone), 0, 49);
-  await ctx.redis.del(AGG_KEY(phone), FLUSH_TOKEN_KEY(phone));
-
-  const notices: CompletionNotice[] = [];
-  for (const item of raw ?? []) {
-    try {
-      const parsed =
-        typeof item === "string"
-          ? (JSON.parse(item) as CompletionNotice)
-          : (item as CompletionNotice);
-      if (parsed?.agentId) notices.push(parsed);
-    } catch {
-      /* ignore */
-    }
+  // Only one isolate may flush a phone at a time (QStash retry / overlap).
+  const drainLock = await ctx.redis.set(DRAIN_LOCK_KEY(phone), token, {
+    nx: true,
+    ex: 60,
+  });
+  if (!(typeof drainLock === "string" && drainLock.toUpperCase() === "OK")) {
+    return { flushed: 0, skipped: true };
   }
 
-  // lpush order is newest-first; chronological for summary
-  notices.reverse();
-  if (notices.length === 0) return { flushed: 0 };
+  try {
+    // Recheck after lock - a newer enqueue may have superseded us.
+    const latest = await ctx.redis.get<string>(FLUSH_TOKEN_KEY(phone));
+    if (latest && latest !== token) {
+      return { flushed: 0, skipped: true };
+    }
 
-  await deliverCompletionNotices(ctx, phone, notices);
-  return { flushed: notices.length };
+    const raw = await ctx.redis.lrange(AGG_KEY(phone), 0, 49);
+    await ctx.redis.del(AGG_KEY(phone), FLUSH_TOKEN_KEY(phone));
+
+    const notices: CompletionNotice[] = [];
+    for (const item of raw ?? []) {
+      try {
+        const parsed =
+          typeof item === "string"
+            ? (JSON.parse(item) as CompletionNotice)
+            : (item as CompletionNotice);
+        if (parsed?.agentId) notices.push(parsed);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // lpush order is newest-first; chronological for summary
+    notices.reverse();
+    if (notices.length === 0) return { flushed: 0 };
+
+    await deliverCompletionNotices(ctx, phone, notices);
+    return { flushed: notices.length };
+  } finally {
+    await ctx.redis.del(DRAIN_LOCK_KEY(phone)).catch(() => undefined);
+  }
 }
 
 async function deliverCompletionNotices(
@@ -142,14 +164,16 @@ async function deliverCompletionNotices(
   const sdk = adapter.getSdk?.();
   if (!sdk) return;
 
-  const threadKey = `sendblue:${from}:${phone}`;
-  await withThreadSendLock(threadKey, async () => {
-    // Typing shortly before the bubble when adapter supports it.
-    const threadId = adapter.encodeThreadId?.({
+  // Must match Chat SDK / outbound session thread ids (base64url), or the
+  // per-thread send lock will not serialize against status/reply bubbles.
+  const threadId =
+    adapter.encodeThreadId?.({
       fromNumber: from,
       contactNumber: phone,
-    });
-    if (threadId && adapter.startTyping) {
+    }) ?? sendblueThreadIdForContact(from, phone);
+
+  await withThreadSendLock(threadId, async () => {
+    if (adapter.startTyping) {
       await adapter.startTyping(threadId).catch(() => undefined);
     }
     const parts = summary

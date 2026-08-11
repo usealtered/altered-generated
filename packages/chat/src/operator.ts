@@ -106,7 +106,7 @@ FORMATTING (hard rules - also enforced by code sanitizer):
 - Keep each send_message tight and iMessage-readable.
 
 MULTI-SEND FLOW (hard rules):
-- The runtime already sent a fast LLM receipt-ack before you were invoked. Do NOT send another status ack like "Checking that now."
+- The runtime already sent a fast LLM receipt-ack before you were invoked. Do NOT send another status ack. Never use the canned phrase "Checking that now."
 - Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
 - Flow: run tools as needed, start_typing, then send_message the final answer (split across sends on paragraph breaks when useful).
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
@@ -176,7 +176,7 @@ export async function handleOperatorMessage(input: {
     return reply;
   }
 
-  // Preamble loads happen AFTER the status ack so Redis/DB work cannot delay it.
+  // Preamble after fast ack so Redis/DB work cannot delay the first bubble.
   const memory = await loadMemoryPreamble(ctx, phone);
   const softDefault = await getSoftDefaultAgentId(ctx);
   const history = await recentHistory(ctx, phone);

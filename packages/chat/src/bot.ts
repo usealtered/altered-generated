@@ -7,6 +7,8 @@ import { generateFastAck } from "./fast-ack";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 
+export { sendblueThreadIdForContact } from "./thread-id";
+
 export type AlteredChat = Chat;
 
 type SendblueAdapterLike = {
@@ -171,9 +173,11 @@ export function createAlteredChat() {
     // Receipt is fire-and-forget (also waitUntil-tracked at webhook). Do not
     // serialize first-bubble send behind mark-read completing.
     void fireReadReceipt(adapter, thread.id, { phone });
+    // Fast LLM ack (not canned). Redis status-ack claim skips duplicates when
+    // overlapping turns drain back-to-back on the same thread.
     const ack = await generateFastAck(ctx, phone, text);
     const sendStarted = Date.now();
-    await outbound.send(ack.text, "status");
+    const sent = await outbound.send(ack.text, "status");
     console.info("[altered-ops] fast ack sent", {
       phone,
       threadId: thread.id,
@@ -182,6 +186,7 @@ export function createAlteredChat() {
       sendMs: Date.now() - sendStarted,
       handlerMs: Date.now() - handlerStarted,
       timedOut: ack.timedOut,
+      skipped: Boolean(sent.skipped),
       preview: ack.text.slice(0, 80),
     });
 
@@ -233,14 +238,4 @@ let singleton: AlteredChat | null = null;
 export function getAlteredChat() {
   if (!singleton) singleton = createAlteredChat();
   return singleton;
-}
-
-/** Resolve Sendblue thread id for a contact (used by webhook early receipt). */
-export function sendblueThreadIdForContact(
-  fromNumber: string,
-  contactNumber: string,
-): string {
-  const from = Buffer.from(fromNumber).toString("base64url");
-  const contact = Buffer.from(contactNumber).toString("base64url");
-  return `sendblue:${from}:${contact}`;
 }
