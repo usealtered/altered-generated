@@ -3,13 +3,14 @@ import { appContract } from "@altered/api-contract";
 import {
   createOperatorContext,
   handleOperatorMessage,
+  computeSplitMetricsToday,
 } from "@altered/chat";
 import { createCursorClient } from "@altered/cursor-bridge";
-import { createDb, dailyMetrics, leadEvents, leads, messages, threads } from "@altered/db";
+import { createDb, dailyMetrics, leadEvents, leads } from "@altered/db";
 import { getServerEnv, missingCriticalEnv } from "@altered/env";
 import { getKnowledgeRoot } from "@altered/knowledge";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
 // Deposit amount resolved from knowledge (not env)
 async function depositCents() {
@@ -46,6 +47,8 @@ export const router = os.router({
     const db = createDb(env.DATABASE_URL);
     const amountCents = await depositCents();
     const status = input.wantDepositCheckout ? "qualified" : "new";
+    const source = input.source ?? "web";
+    const isTest = /audit|test|smoke/i.test(source);
     const [lead] = await db
       .insert(leads)
       .values({
@@ -53,10 +56,11 @@ export const router = os.router({
         phone: input.phone,
         name: input.name,
         company: input.company,
-        source: input.source ?? "web",
+        source,
         notes: input.notes,
         utm: input.utm,
         status,
+        isTest,
         depositAmountCents: amountCents,
         depositCurrency: env.EARLY_ACCESS_DEPOSIT_CURRENCY,
       })
@@ -92,16 +96,18 @@ export const router = os.router({
       }
     }
 
-    await db
-      .insert(dailyMetrics)
-      .values({ day: todayKey(), leadsCreated: 1 })
-      .onConflictDoUpdate({
-        target: dailyMetrics.day,
-        set: {
-          leadsCreated: sql`${dailyMetrics.leadsCreated} + 1`,
-          updatedAt: new Date(),
-        },
-      });
+    if (!isTest) {
+      await db
+        .insert(dailyMetrics)
+        .values({ day: todayKey(), leadsCreated: 1 })
+        .onConflictDoUpdate({
+          target: dailyMetrics.day,
+          set: {
+            leadsCreated: sql`${dailyMetrics.leadsCreated} + 1`,
+            updatedAt: new Date(),
+          },
+        });
+    }
 
     return {
       id: lead!.id,
@@ -137,85 +143,67 @@ export const router = os.router({
     const env = getServerEnv();
     const day = todayKey();
     const goalCents = 25000;
+    const emptyStages = {
+      new: 0,
+      contacted: 0,
+      qualified: 0,
+      reserved: 0,
+      paid: 0,
+      lost: 0,
+    };
+    const integrityNote =
+      "prospectFunnel excludes operator +12368370221 and leads.is_test=true. internalOps is reported separately and must not be summed into funnel stats.";
     if (!env.DATABASE_URL) {
       return {
         day,
+        goalCents,
+        progress: 0,
+        prospectFunnel: {
+          uniquePhonesMessagedToday: 0,
+          inboundMessagesToday: 0,
+          leadsCreatedToday: 0,
+          funnelStages: emptyStages,
+          aiCallsToday: 0,
+          aiCostUsdToday: 0,
+          depositsCount: 0,
+          depositsCents: 0,
+        },
+        internalOps: {
+          uniquePhonesMessagedToday: 0,
+          inboundMessagesToday: 0,
+          operatorPhones: ["+12368370221"],
+          aiCallsToday: 0,
+          aiCostUsdToday: 0,
+          surfaces: [],
+        },
         leadsCreated: 0,
         leadsCreatedToday: 0,
         depositsCount: 0,
         depositsCents: 0,
-        goalCents,
-        progress: 0,
         inboundMessagesToday: 0,
         uniquePhonesMessagedToday: 0,
         imessageInbound: 0,
-        funnelStages: {
-          new: 0,
-          contacted: 0,
-          qualified: 0,
-          reserved: 0,
-          paid: 0,
-          lost: 0,
-        },
+        funnelStages: emptyStages,
+        integrityNote,
       };
     }
     const db = createDb(env.DATABASE_URL);
-    const row = await db.query.dailyMetrics.findFirst({
-      where: eq(dailyMetrics.day, day),
-    });
-    const depositsCents = row?.depositsCents ?? 0;
-    const dayStart = new Date(`${day}T00:00:00.000Z`);
-
-    const [inboundAgg] = await db
-      .select({
-        inboundMessages: sql<number>`count(*)::int`,
-        uniquePhones: sql<number>`count(distinct ${threads.phone})::int`,
-      })
-      .from(messages)
-      .innerJoin(threads, eq(messages.threadId, threads.id))
-      .where(
-        and(
-          eq(messages.direction, "inbound"),
-          sql`${messages.createdAt} >= ${dayStart}`,
-        ),
-      );
-
-    const stageRows = await db
-      .select({
-        status: leads.status,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(leads)
-      .groupBy(leads.status);
-    const stages = Object.fromEntries(
-      stageRows.map((r) => [r.status, r.n]),
-    ) as Record<string, number>;
-
-    const [leadsTodayRow] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(leads)
-      .where(sql`${leads.createdAt} >= ${dayStart}`);
-
+    const split = await computeSplitMetricsToday(db, day, goalCents);
     return {
-      day,
-      leadsCreated: row?.leadsCreated ?? 0,
-      leadsCreatedToday: leadsTodayRow?.n ?? 0,
-      depositsCount: row?.depositsCount ?? 0,
-      depositsCents,
-      goalCents,
-      progress: Math.min(1, depositsCents / goalCents),
-      inboundMessagesToday:
-        inboundAgg?.inboundMessages ?? row?.imessageInbound ?? 0,
-      uniquePhonesMessagedToday: inboundAgg?.uniquePhones ?? 0,
-      imessageInbound: inboundAgg?.inboundMessages ?? row?.imessageInbound ?? 0,
-      funnelStages: {
-        new: stages.new ?? 0,
-        contacted: stages.contacted ?? 0,
-        qualified: stages.qualified ?? 0,
-        reserved: stages.reserved ?? 0,
-        paid: stages.paid ?? 0,
-        lost: stages.lost ?? 0,
-      },
+      day: split.day,
+      goalCents: split.goalCents,
+      progress: split.progress,
+      prospectFunnel: split.prospectFunnel,
+      internalOps: split.internalOps,
+      leadsCreated: split.prospectFunnel.leadsCreatedToday,
+      leadsCreatedToday: split.prospectFunnel.leadsCreatedToday,
+      depositsCount: split.prospectFunnel.depositsCount,
+      depositsCents: split.prospectFunnel.depositsCents,
+      inboundMessagesToday: split.prospectFunnel.inboundMessagesToday,
+      uniquePhonesMessagedToday: split.prospectFunnel.uniquePhonesMessagedToday,
+      imessageInbound: split.legacyDailyCounters.imessageInbound,
+      funnelStages: split.prospectFunnel.funnelStages,
+      integrityNote,
     };
   }),
 

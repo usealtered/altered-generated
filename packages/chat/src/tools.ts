@@ -13,7 +13,6 @@ import {
   leadEvents,
   leads,
   memories,
-  messages,
   threads,
 } from "@altered/db";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
@@ -21,6 +20,7 @@ import { z } from "zod";
 import type { OperatorContext } from "./operator-context";
 import type { OutboundSession } from "./outbound";
 import { depositLabel, resolveDepositAmountCents } from "./offer";
+import { computeSplitMetricsToday } from "./metrics";
 import {
   findActiveAgentForWorkstream,
   getSoftDefaultAgentId,
@@ -895,7 +895,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     get_metrics: tool({
       description:
-        "Today's funnel metrics with breakdown: unique phones, inbound message count, leads, and stage counts. Do not treat imessageInbound alone as unique conversations.",
+        "Today's metrics split into TWO labeled buckets that are NEVER summed by default: (a) prospectFunnel = real lead/sales traffic only; (b) internalOps = Riley ops copilot chat. Operator phone +12368370221 is excluded from prospect counts.",
       inputSchema: z.object({}),
       execute: async () => {
         const day = todayKey();
@@ -908,78 +908,56 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
             offline: true,
             depositAmount: amountLabel,
             goalCents,
+            note: "DATABASE_URL missing — cannot compute split metrics",
           };
         }
-        const row = await ctx.db.query.dailyMetrics.findFirst({
-          where: eq(dailyMetrics.day, day),
-        });
-        const cents = row?.depositsCents ?? 0;
-        const aiCostMicros = row?.aiCostMicros ?? 0;
-        const leadsCreated = row?.leadsCreated ?? 0;
-
-        const dayStart = new Date(`${day}T00:00:00.000Z`);
-        const [inboundAgg] = await ctx.db
-          .select({
-            inboundMessages: sql<number>`count(*)::int`,
-            uniquePhones: sql<number>`count(distinct ${threads.phone})::int`,
-          })
-          .from(messages)
-          .innerJoin(threads, eq(messages.threadId, threads.id))
-          .where(
-            and(
-              eq(messages.direction, "inbound"),
-              sql`${messages.createdAt} >= ${dayStart}`,
-            ),
-          );
-
-        const stageRows = await ctx.db
-          .select({
-            status: leads.status,
-            n: sql<number>`count(*)::int`,
-          })
-          .from(leads)
-          .groupBy(leads.status);
-        const funnelStages = Object.fromEntries(
-          stageRows.map((r) => [r.status, r.n]),
-        ) as Record<string, number>;
-
-        const [leadsTodayRow] = await ctx.db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(leads)
-          .where(sql`${leads.createdAt} >= ${dayStart}`);
-
+        const split = await computeSplitMetricsToday(ctx.db, day, goalCents);
+        const leadsCreated = split.prospectFunnel.leadsCreatedToday;
         return {
-          day,
-          leadsCreated,
-          leadsCreatedToday: leadsTodayRow?.n ?? leadsCreated,
-          depositsCount: row?.depositsCount ?? 0,
-          depositsCents: cents,
-          progressPct: Math.min(100, Math.round((cents / goalCents) * 100)),
-          goalCents,
+          day: split.day,
           depositAmount: amountLabel,
-          /** @deprecated Prefer inboundMessagesToday + uniquePhonesMessagedToday */
-          imessageInbound: row?.imessageInbound ?? 0,
-          inboundMessagesToday:
-            inboundAgg?.inboundMessages ?? row?.imessageInbound ?? 0,
-          uniquePhonesMessagedToday: inboundAgg?.uniquePhones ?? 0,
-          funnelStages: {
-            new: funnelStages.new ?? 0,
-            contacted: funnelStages.contacted ?? 0,
-            qualified: funnelStages.qualified ?? 0,
-            reserved: funnelStages.reserved ?? 0,
-            paid: funnelStages.paid ?? 0,
-            lost: funnelStages.lost ?? 0,
-          },
-          cursorRuns: row?.cursorRuns ?? 0,
-          aiCalls: row?.aiCalls ?? 0,
-          aiInputTokens: row?.aiInputTokens ?? 0,
-          aiOutputTokens: row?.aiOutputTokens ?? 0,
-          aiCostUsd: Number((aiCostMicros / 1_000_000).toFixed(6)),
+          goalCents: split.goalCents,
+          progressPct: Math.min(
+            100,
+            Math.round(split.progress * 100),
+          ),
+          /** Real prospect / lead funnel — excludes operator/ops chat. */
+          prospectFunnel: split.prospectFunnel,
+          /** Riley ops copilot + internal AI — never merge into prospectFunnel. */
+          internalOps: split.internalOps,
+          /**
+           * Compatibility aliases = prospectFunnel only (NOT total / NOT ops).
+           * Prefer prospectFunnel.* and internalOps.* explicitly.
+           */
+          leadsCreated,
+          leadsCreatedToday: leadsCreated,
+          depositsCount: split.prospectFunnel.depositsCount,
+          depositsCents: split.prospectFunnel.depositsCents,
+          inboundMessagesToday: split.prospectFunnel.inboundMessagesToday,
+          uniquePhonesMessagedToday:
+            split.prospectFunnel.uniquePhonesMessagedToday,
+          funnelStages: split.prospectFunnel.funnelStages,
+          /** @deprecated Contaminated daily_metrics counter — do not trust. */
+          imessageInbound: split.legacyDailyCounters.imessageInbound,
+          cursorRuns: (
+            await ctx.db.query.dailyMetrics.findFirst({
+              where: eq(dailyMetrics.day, day),
+            })
+          )?.cursorRuns ?? 0,
+          aiCalls: split.prospectFunnel.aiCallsToday,
+          aiCostUsd: split.prospectFunnel.aiCostUsdToday,
           aiCostPerLeadUsd:
             leadsCreated > 0
-              ? Number((aiCostMicros / 1_000_000 / leadsCreated).toFixed(6))
+              ? Number(
+                  (split.prospectFunnel.aiCostUsdToday / leadsCreated).toFixed(
+                    6,
+                  ),
+                )
               : null,
+          legacyDailyCounters: split.legacyDailyCounters,
           checkoutUrl: ctx.env.PRIMARY_CHECKOUT_URL ?? null,
+          integrityNote:
+            "prospectFunnel excludes operator +12368370221 and leads.is_test=true. internalOps is reported separately and must not be summed into funnel stats.",
         };
       },
     }),

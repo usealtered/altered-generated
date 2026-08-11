@@ -65,17 +65,43 @@ export const metricsTodayContract = oc
   .output(
     z.object({
       day: z.string(),
+      goalCents: z.number(),
+      progress: z.number(),
+      /** Real prospect funnel — never includes operator/ops chat. */
+      prospectFunnel: z.object({
+        uniquePhonesMessagedToday: z.number(),
+        inboundMessagesToday: z.number(),
+        leadsCreatedToday: z.number(),
+        funnelStages: z.object({
+          new: z.number(),
+          contacted: z.number(),
+          qualified: z.number(),
+          reserved: z.number(),
+          paid: z.number(),
+          lost: z.number(),
+        }),
+        aiCallsToday: z.number(),
+        aiCostUsdToday: z.number(),
+        depositsCount: z.number(),
+        depositsCents: z.number(),
+      }),
+      /** Riley ops copilot + internal AI — labeled separately; never sum into prospectFunnel. */
+      internalOps: z.object({
+        uniquePhonesMessagedToday: z.number(),
+        inboundMessagesToday: z.number(),
+        operatorPhones: z.array(z.string()),
+        aiCallsToday: z.number(),
+        aiCostUsdToday: z.number(),
+        surfaces: z.array(z.string()),
+      }),
+      /** Compatibility: aliases of prospectFunnel (NOT totals). */
       leadsCreated: z.number(),
       leadsCreatedToday: z.number(),
       depositsCount: z.number(),
       depositsCents: z.number(),
-      goalCents: z.number(),
-      progress: z.number(),
-      /** Raw inbound message rows today (not unique conversations). */
       inboundMessagesToday: z.number(),
-      /** Distinct phones with ≥1 inbound message today. */
       uniquePhonesMessagedToday: z.number(),
-      /** Deprecated alias of inboundMessagesToday — do not treat as unique leads. */
+      /** @deprecated Contaminated daily_metrics counter. */
       imessageInbound: z.number(),
       funnelStages: z.object({
         new: z.number(),
@@ -85,6 +111,7 @@ export const metricsTodayContract = oc
         paid: z.number(),
         lost: z.number(),
       }),
+      integrityNote: z.string(),
     }),
   );
 

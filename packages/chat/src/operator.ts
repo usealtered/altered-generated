@@ -24,7 +24,6 @@ import {
 } from "./observability";
 import { handleSalesMessage } from "./sales";
 import {
-  bumpMetric,
   createOperatorTools,
   loadMemoryPreamble,
 } from "./tools";
@@ -33,6 +32,7 @@ import {
   enqueuePublish,
   tryHandleApprovalMessage,
 } from "./posting";
+import { ensureOperatorRecord } from "./metrics";
 
 /** Optional env bootstrap only - not a hard singleton agent. */
 async function ensureSoftDefaultAgentSeed(ctx: OperatorContext) {
@@ -57,13 +57,29 @@ async function ensureThread(
   phone: string,
 ) {
   if (!ctx.db) return null;
+  await ensureOperatorRecord(ctx.db, phone, "Riley");
   const existing = await ctx.db.query.threads.findFirst({
     where: eq(threads.chatThreadId, chatThreadId),
   });
-  if (existing) return existing;
+  if (existing) {
+    if (existing.kind !== "operator") {
+      const [updated] = await ctx.db
+        .update(threads)
+        .set({ kind: "operator", updatedAt: new Date() })
+        .where(eq(threads.id, existing.id))
+        .returning();
+      return updated ?? existing;
+    }
+    return existing;
+  }
   const [row] = await ctx.db
     .insert(threads)
-    .values({ chatThreadId, phone, channel: "sendblue" })
+    .values({
+      chatThreadId,
+      phone,
+      channel: "sendblue",
+      kind: "operator",
+    })
     .returning();
   return row ?? null;
 }
@@ -75,7 +91,12 @@ async function saveMessage(
   body: string,
 ) {
   if (!ctx.db || !threadId) return;
-  await ctx.db.insert(messages).values({ threadId, direction, body });
+  await ctx.db.insert(messages).values({
+    threadId,
+    direction,
+    body,
+    isInternal: true,
+  });
 }
 
 async function recentHistory(
@@ -186,7 +207,7 @@ export async function handleOperatorMessage(input: {
   await ensureSoftDefaultAgentSeed(ctx);
   const thread = await ensureThread(ctx, input.chatThreadId, phone);
   await saveMessage(ctx, thread?.id, "inbound", input.text);
-  await bumpMetric(ctx, "imessageInbound");
+  // Do NOT bump prospect imessageInbound — ops chat is internalOps only.
 
   // HITL posting: one-tap APPROVE ALL / REJECT ALL before the full ops LLM turn.
   const approvalReply = await tryHandleApprovalMessage(ctx, input.text);

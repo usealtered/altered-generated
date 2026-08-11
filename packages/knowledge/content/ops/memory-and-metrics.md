@@ -15,13 +15,17 @@ Last updated: 2026-08-10.
 - Chat history: last ~6 Redis turns. Narrative recall via `recall_memories` / `search_knowledge` only when needed.
 - Redis mirrors keyed facts (`memory:key:*`) and a capped list. Not an MRU eviction of Postgres — DB grows; ranking is by `updated_at`.
 
-### Observability
+### Observability / metrics integrity (2026-08-11)
 - `ai_events`: append-only per LLM turn (surface, model, tokens, estimated `cost_micros`, latency, tools, ok/error).
-- `daily_metrics` rollups: `ai_calls`, `ai_input_tokens`, `ai_output_tokens`, `ai_cost_micros` (+ leads/deposits/imessage/cursor).
-- `get_metrics` exposes AI spend + rough `$ AI / lead`.
+- `threads.kind` (`operator`|`prospect`) + `messages.is_internal` + `leads.is_test` separate ops chat from real funnel.
+- `get_metrics` / `GET /metrics/today` return **two buckets**: `prospectFunnel` and `internalOps` — never summed by default.
+- Operator `+12368370221` is in `operators` and excluded from prospect counts.
+- Legacy `daily_metrics.imessage_inbound` / mixed `ai_calls` are contaminated historical counters — do not trust for funnel.
+- Doc: `knowledge/ops/metrics-integrity.md`.
 
 ### Sales funnel spine
 - `leads.status` is the stage (`new|contacted|qualified|reserved|paid|lost`).
+- `leads.is_test` excludes audit/dev rows from funnel stages.
 - `lead_events`: append-only created/updated/status_changed for analytics.
 - `save_lead` upserts by email/phone and writes a `lead_events` row.
 

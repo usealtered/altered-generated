@@ -262,10 +262,27 @@ async function ensureSalesThread(
   const existing = await ctx.db.query.threads.findFirst({
     where: eq(threads.chatThreadId, chatThreadId),
   });
-  if (existing) return existing;
+  if (existing) {
+    // Never let a prospect thread silently become operator; if mis-tagged, leave.
+    if (existing.kind === "operator") return existing;
+    if (existing.kind !== "prospect") {
+      const [updated] = await ctx.db
+        .update(threads)
+        .set({ kind: "prospect", updatedAt: new Date() })
+        .where(eq(threads.id, existing.id))
+        .returning();
+      return updated ?? existing;
+    }
+    return existing;
+  }
   const [row] = await ctx.db
     .insert(threads)
-    .values({ chatThreadId, phone, channel: "sendblue" })
+    .values({
+      chatThreadId,
+      phone,
+      channel: "sendblue",
+      kind: "prospect",
+    })
     .returning();
   return row ?? null;
 }
@@ -279,10 +296,12 @@ async function saveSalesMessage(
   const cleaned = sanitizeImessageText(body);
   if (!cleaned) return;
   if (ctx.db && threadId) {
-    await ctx.db.insert(messages).values({ threadId, direction, body: cleaned });
-  }
-  if (ctx.redis) {
-    // phone is not passed - skip redis mirror here; operator path owns history keys
+    await ctx.db.insert(messages).values({
+      threadId,
+      direction,
+      body: cleaned,
+      isInternal: false,
+    });
   }
 }
 
@@ -355,6 +374,7 @@ async function upsertSalesLead(
       notes: input.notes,
       source: "imessage-sales",
       status: input.status,
+      isTest: false,
       depositAmountCents: amountCents,
       depositCurrency: ctx.env.EARLY_ACCESS_DEPOSIT_CURRENCY,
     })

@@ -4,11 +4,19 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (Vercel allowlist self-fix + locked hero + HITL posting).
+Last updated: 2026-08-11 (metrics integrity split + Vercel allowlist + HITL posting).
 
 ## HEAD on main
 
 See latest `main`.
+
+### Metrics integrity (URGENT fix 2026-08-11)
+
+- Bug: `get_metrics` / inbound counts were 100% Riley ops chat (`+12368370221`), not prospects.
+- Fix: migration `0005_metrics_integrity` — `threads.kind`, `messages.is_internal`, `leads.is_test`, seed `operators`.
+- APIs return `prospectFunnel` + `internalOps` separately (never summed by default).
+- Doc: `knowledge/ops/metrics-integrity.md`
+- Proof (day 2026-08-11 post-backfill): prospect inbound **0** / unique phones **0**; internalOps inbound **39** from Riley only; real leads today **0** (2 audit leads marked `is_test`).
 
 ### Vercel allowlist (URGENT 2026-08-11)
 

@@ -5,6 +5,13 @@ export * from "./bot";
 export * from "./offer";
 export * from "./model";
 export {
+  computeSplitMetricsToday,
+  ensureOperatorRecord,
+  isInternalOperatorPhone,
+  KNOWN_OPERATOR_PHONES,
+  type SplitMetricsToday,
+} from "./metrics";
+export {
   createOutboundSession,
   type OutboundSession,
   type ThreadTransport,

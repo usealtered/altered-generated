@@ -25,6 +25,9 @@ export const messageDirectionEnum = pgEnum("message_direction", [
   "outbound",
 ]);
 
+/** operator = Riley/ops copilot chat; prospect = real sales DMs */
+export const threadKindEnum = pgEnum("thread_kind", ["operator", "prospect"]);
+
 export const cursorJobStatusEnum = pgEnum("cursor_job_status", [
   "queued",
   "running",
@@ -68,12 +71,17 @@ export const threads = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     chatThreadId: text("chat_thread_id").notNull().unique(),
     channel: varchar("channel", { length: 32 }).notNull().default("sendblue"),
+    /** operator = internal ops; prospect = real lead funnel */
+    kind: threadKindEnum("kind").notNull().default("prospect"),
     phone: varchar("phone", { length: 32 }).notNull(),
     cursorAgentId: text("cursor_agent_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("threads_phone_idx").on(t.phone)],
+  (t) => [
+    index("threads_phone_idx").on(t.phone),
+    index("threads_kind_idx").on(t.kind),
+  ],
 );
 
 export const messages = pgTable(
@@ -85,10 +93,15 @@ export const messages = pgTable(
       .references(() => threads.id, { onDelete: "cascade" }),
     direction: messageDirectionEnum("direction").notNull(),
     body: text("body").notNull(),
+    /** True for operator/ops chat; never merge into prospect funnel metrics. */
+    isInternal: boolean("is_internal").notNull().default(false),
     raw: jsonb("raw"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("messages_thread_idx").on(t.threadId)],
+  (t) => [
+    index("messages_thread_idx").on(t.threadId),
+    index("messages_internal_idx").on(t.isInternal),
+  ],
 );
 
 export const knowledgeChunks = pgTable(
@@ -116,6 +129,8 @@ export const leads = pgTable(
     source: varchar("source", { length: 64 }).notNull().default("web"),
     /** Funnel stage: new → contacted → qualified → reserved → paid | lost */
     status: leadStatusEnum("status").notNull().default("new"),
+    /** Audit/dev/test rows — excluded from prospect funnel metrics. */
+    isTest: boolean("is_test").notNull().default(false),
     notes: text("notes"),
     utm: jsonb("utm"),
     depositAmountCents: integer("deposit_amount_cents"),
@@ -130,6 +145,7 @@ export const leads = pgTable(
     index("leads_email_idx").on(t.email),
     index("leads_phone_idx").on(t.phone),
     index("leads_status_idx").on(t.status),
+    index("leads_is_test_idx").on(t.isTest),
   ],
 );
 
