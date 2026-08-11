@@ -1080,6 +1080,158 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         return { items: [] };
       },
     }),
+
+    generate_post_ideas: tool({
+      description:
+        "Generate a batch of social post ideas (X/LinkedIn), queue them for one-tap HITL approval, and text Riley the batch.",
+      inputSchema: z.object({
+        count: z.number().int().min(3).max(7).optional().default(5),
+      }),
+      execute: async ({ count }) => {
+        const { runGenerateTick } = await import("./posting");
+        const result = await runGenerateTick(ctx, {
+          source: "imessage-tool",
+          count,
+        });
+        return {
+          ok: result.generated.ok,
+          batchId: result.generated.batchId,
+          ideaIds: result.generated.ideaIds,
+          notified: result.notified,
+          schedules: result.schedules,
+          error: result.generated.error ?? result.generated.skipped,
+        };
+      },
+    }),
+
+    list_post_ideas: tool({
+      description:
+        "List recent post ideas by status (pending_approval, approved, published, failed).",
+      inputSchema: z.object({
+        status: z
+          .enum([
+            "pending_approval",
+            "approved",
+            "published",
+            "failed",
+            "rejected",
+          ])
+          .optional()
+          .default("pending_approval"),
+        limit: z.number().int().min(1).max(20).optional().default(10),
+      }),
+      execute: async ({ status, limit }) => {
+        if (!ctx.db) return { items: [], error: "no db" };
+        const { postIdeas } = await import("@altered/db");
+        const { desc, eq } = await import("drizzle-orm");
+        const rows = await ctx.db.query.postIdeas.findMany({
+          where: eq(postIdeas.status, status),
+          orderBy: [desc(postIdeas.createdAt)],
+          limit,
+        });
+        return {
+          items: rows.map((r) => ({
+            id: r.id,
+            batchIndex: r.batchIndex,
+            status: r.status,
+            platform: r.platform,
+            hook: r.hook,
+            landingUrl: r.landingUrl,
+            zernioPostId: r.zernioPostId,
+            error: r.error,
+          })),
+        };
+      },
+    }),
+
+    approve_posts: tool({
+      description:
+        "Approve or reject the latest pending post batch (or a specific batch id). Prefer APPROVE ALL for minimal friction.",
+      inputSchema: z.object({
+        batchId: z.string().uuid().optional(),
+        action: z
+          .enum(["approve_all", "reject_all"])
+          .optional()
+          .default("approve_all"),
+        indexes: z.array(z.number().int().positive()).optional(),
+      }),
+      execute: async ({ batchId, action, indexes }) => {
+        const {
+          applyBatchApproval,
+          getLatestPendingBatch,
+          enqueuePublish,
+        } = await import("./posting");
+        const batch =
+          batchId != null
+            ? { id: batchId }
+            : await getLatestPendingBatch(ctx);
+        if (!batch) return { ok: false, error: "no pending batch" };
+        const decision =
+          indexes?.length && action === "approve_all"
+            ? ({ kind: "approve_indexes", indexes } as const)
+            : action === "reject_all"
+              ? ({ kind: "reject_all" } as const)
+              : ({ kind: "approve_all" } as const);
+        const result = await applyBatchApproval(ctx, {
+          batchId: batch.id,
+          action: decision,
+          source: "imessage-tool",
+        });
+        if (result.ok && result.approved > 0) {
+          await enqueuePublish(ctx, 5);
+        }
+        return result;
+      },
+    }),
+
+    run_post_publish: tool({
+      description:
+        "Publish approved post ideas via Zernio now (same as the publish cron tick).",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(20).optional().default(10),
+      }),
+      execute: async ({ limit }) => {
+        const { runPublishTick } = await import("./posting");
+        return runPublishTick(ctx, { source: "imessage-tool", limit });
+      },
+    }),
+
+    posting_status: tool({
+      description:
+        "Posting pipeline status: Zernio config, pending/approved counts, schedule state.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const {
+          zernioConfigured,
+          postingEnabled,
+          ensurePostingSchedules,
+        } = await import("./posting");
+        const { postIdeas } = await import("@altered/db");
+        const { sql } = await import("drizzle-orm");
+        let counts: Record<string, number> = {};
+        if (ctx.db) {
+          const rows = await ctx.db
+            .select({
+              status: postIdeas.status,
+              n: sql<number>`count(*)::int`,
+            })
+            .from(postIdeas)
+            .groupBy(postIdeas.status);
+          counts = Object.fromEntries(rows.map((r) => [r.status, r.n]));
+        }
+        const schedules = await ensurePostingSchedules(ctx);
+        return {
+          postingEnabled: postingEnabled(ctx.env),
+          zernioConfigured: zernioConfigured(ctx.env),
+          hasApiKey: Boolean(ctx.env.ZERNIO_API_KEY),
+          hasTwitterAccount: Boolean(ctx.env.ZERNIO_TWITTER_ACCOUNT_ID),
+          hasProfile: Boolean(ctx.env.ZERNIO_PROFILE_ID),
+          counts,
+          schedules,
+          landing: `${(ctx.env.APP_BASE_URL ?? "https://generated.api.usealtered.com").replace(/\/$/, "")}/reserve`,
+        };
+      },
+    }),
   };
 
   return wrapToolsForOutbound(tools, session.outbound);

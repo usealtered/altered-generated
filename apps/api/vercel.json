@@ -2,5 +2,15 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm knowledge:sync && pnpm --filter @altered/api build:vercel"
+  "buildCommand": "cd ../.. && pnpm knowledge:sync && pnpm --filter @altered/api build:vercel",
+  "crons": [
+    {
+      "path": "/cron/posts/generate",
+      "schedule": "0 14 * * 1,3,5"
+    },
+    {
+      "path": "/cron/posts/publish",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }

@@ -62,6 +62,22 @@ export const serverEnvSchema = z.object({
   EARLY_ACCESS_DEPOSIT_CURRENCY: z.string().default("usd"),
   /** Static Stripe Payment Link / Checkout URL — optional until offer locked */
   PRIMARY_CHECKOUT_URL: optionalUrl,
+
+  /**
+   * Zernio social posting API (https://docs.zernio.com/).
+   * Required to publish approved post ideas. Pipeline still generates + HITL
+   * without these; publish step no-ops with a logged discrepancy.
+   */
+  ZERNIO_API_KEY: optionalString,
+  ZERNIO_PROFILE_ID: optionalString,
+  ZERNIO_TWITTER_ACCOUNT_ID: optionalString,
+  ZERNIO_LINKEDIN_ACCOUNT_ID: optionalString,
+  /** Optional HMAC secret for one-tap approve magic links (falls back to QSTASH_TOKEN). */
+  POSTING_APPROVAL_SECRET: optionalString,
+  /** Optional bearer for Vercel Cron routes (x-vercel-cron also accepted). */
+  CRON_SECRET: optionalString,
+  /** Set "false" to pause generate/publish crons without removing schedules. */
+  POSTING_ENABLED: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

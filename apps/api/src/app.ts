@@ -14,8 +14,19 @@ import {
   setBackgroundScheduler,
   traceLog,
   webhookAgeMs,
+  runGenerateTick,
+  runPublishTick,
+  applyBatchApproval,
+  verifyBatchActionToken,
+  ensurePostingSchedules,
+  enqueuePublish,
+  listPendingBatchIdeas,
+  getLatestPendingBatch,
+  buildApprovalLinks,
+  zernioConfigured,
+  postingEnabled,
 } from "@altered/chat";
-import { createDb, cursorJobs } from "@altered/db";
+import { createDb, cursorJobs, leads, leadEvents } from "@altered/db";
 import { getServerEnv, normalizePhone } from "@altered/env";
 import { waitUntil } from "@vercel/functions";
 import { Receiver } from "@upstash/qstash";
@@ -60,12 +71,20 @@ app.get("/", (c) =>
     health: "/health",
     reserve: "/reserve",
     rpc: "/rpc/*",
+    posting: {
+      approve: "/ops/posts/approve",
+      pending: "/ops/posts/pending",
+      status: "/ops/posts/status",
+    },
     webhooks: [
       "/webhooks/sendblue",
       "/webhooks/qstash/cursor-poll",
       "/webhooks/qstash/cursor-retry",
       "/webhooks/qstash/notify-flush",
+      "/webhooks/qstash/posts/generate",
+      "/webhooks/qstash/posts/publish",
     ],
+    cron: ["/cron/posts/generate", "/cron/posts/publish"],
   }),
 );
 
@@ -83,6 +102,9 @@ app.use("/rpc/*", async (c, next) => {
 
 app.use("*", async (c, next) => {
   if (c.req.path.startsWith("/webhooks")) return next();
+  if (c.req.path.startsWith("/cron")) return next();
+  if (c.req.path.startsWith("/ops/posts")) return next();
+  if (c.req.path.startsWith("/ops/leads")) return next();
   const { matched, response } = await openapi.handle(c.req.raw, {
     context: {},
   });
@@ -252,6 +274,14 @@ async function verifyQstash(req: Request) {
   return receiver.verify({ signature, body });
 }
 
+function verifyCronRequest(req: Request): boolean {
+  const env = getServerEnv();
+  if (req.headers.get("x-vercel-cron") === "1") return true;
+  if (!env.CRON_SECRET) return false;
+  const auth = req.headers.get("authorization") ?? "";
+  return auth === `Bearer ${env.CRON_SECRET}`;
+}
+
 app.post("/webhooks/qstash/cursor-poll", async (c) => {
   const ok = await verifyQstash(c.req.raw);
   if (!ok) return c.json({ error: "invalid signature" }, 401);
@@ -330,6 +360,219 @@ app.post("/webhooks/qstash/cursor-retry", async (c) => {
       .where(eq(cursorJobs.id, job.id));
     return c.json({ error: message }, 500);
   }
+});
+
+app.post("/webhooks/qstash/posts/generate", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json().catch(() => ({} as { source?: string }));
+  const ctx = createOperatorContext();
+  const result = await runGenerateTick(ctx, {
+    source: (body as { source?: string })?.source ?? "qstash",
+  });
+  return c.json(result);
+});
+
+app.post("/webhooks/qstash/posts/publish", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json().catch(() => ({} as { source?: string }));
+  const ctx = createOperatorContext();
+  const result = await runPublishTick(ctx, {
+    source: (body as { source?: string })?.source ?? "qstash",
+  });
+  return c.json(result);
+});
+
+app.get("/cron/posts/generate", async (c) => {
+  if (!verifyCronRequest(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ctx = createOperatorContext();
+  const result = await runGenerateTick(ctx, { source: "vercel-cron" });
+  return c.json(result);
+});
+
+app.get("/cron/posts/publish", async (c) => {
+  if (!verifyCronRequest(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ctx = createOperatorContext();
+  const result = await runPublishTick(ctx, { source: "vercel-cron" });
+  return c.json(result);
+});
+
+/** One-tap approve/reject magic link (iMessage-friendly). */
+app.get("/ops/posts/approve", async (c) => {
+  const batchId = c.req.query("batch");
+  const action = c.req.query("action") ?? "approve_all";
+  const token = c.req.query("token") ?? "";
+  if (!batchId || !token) {
+    return c.html(
+      `<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Missing params</h1><p>batch and token required.</p></body></html>`,
+      400,
+    );
+  }
+  const ctx = createOperatorContext();
+  if (!verifyBatchActionToken(ctx, batchId, action, token)) {
+    return c.html(
+      `<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Invalid or expired link</h1></body></html>`,
+      401,
+    );
+  }
+  const decision =
+    action === "reject_all"
+      ? ({ kind: "reject_all" } as const)
+      : ({ kind: "approve_all" } as const);
+  const result = await applyBatchApproval(ctx, {
+    batchId,
+    action: decision,
+    source: "magic-link",
+  });
+  if (result.ok && result.approved > 0) {
+    await enqueuePublish(ctx, 5);
+  }
+  const title = result.ok
+    ? decision.kind === "approve_all"
+      ? `Approved ${result.approved} post(s)`
+      : `Rejected ${result.rejected} post(s)`
+    : `Could not apply: ${result.error ?? "unknown"}`;
+  return c.html(
+    `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#07110f;color:#d7ebe3;padding:2.5rem;min-height:100vh"><h1 style="font-size:1.5rem">${title}</h1><p style="color:#9bb8ad">Approved posts publish via Zernio on the next cron tick (or within seconds if queued).</p><p><a style="color:#b6ff3c" href="/ops/posts/pending">View pending</a></p></body></html>`,
+  );
+});
+
+app.get("/ops/posts/pending", async (c) => {
+  const ctx = createOperatorContext();
+  const batch = await getLatestPendingBatch(ctx);
+  if (!batch) {
+    return c.json({ pending: false, ideas: [] });
+  }
+  const ideas = await listPendingBatchIdeas(ctx, batch.id);
+  const links = buildApprovalLinks(ctx, batch.id);
+  return c.json({
+    pending: true,
+    batch: {
+      id: batch.id,
+      status: batch.status,
+      ideaCount: batch.ideaCount,
+      createdAt: batch.createdAt,
+    },
+    ideas: ideas.map((i) => ({
+      id: i.id,
+      batchIndex: i.batchIndex,
+      platform: i.platform,
+      hook: i.hook,
+      content: i.content,
+      landingUrl: i.landingUrl,
+    })),
+    links,
+  });
+});
+
+app.get("/ops/posts/status", async (c) => {
+  const ctx = createOperatorContext();
+  const env = ctx.env;
+  return c.json({
+    postingEnabled: postingEnabled(env),
+    zernioConfigured: zernioConfigured(env),
+    hasZernioKey: Boolean(env.ZERNIO_API_KEY),
+    hasTwitterAccount: Boolean(env.ZERNIO_TWITTER_ACCOUNT_ID),
+    hasProfile: Boolean(env.ZERNIO_PROFILE_ID),
+    schedules: {
+      generateCron: "0 14 * * 1,3,5",
+      publishCron: "*/15 * * * *",
+      note: "POST /ops/posts/ensure-schedules to bootstrap QStash",
+    },
+  });
+});
+
+app.post("/ops/posts/ensure-schedules", async (c) => {
+  const env = getServerEnv();
+  const auth = c.req.header("authorization") ?? "";
+  const cronOk = verifyCronRequest(c.req.raw);
+  const secretOk = Boolean(
+    env.CRON_SECRET && auth === `Bearer ${env.CRON_SECRET}`,
+  );
+  const qstashTokenOk = Boolean(
+    env.QSTASH_TOKEN && auth === `Bearer ${env.QSTASH_TOKEN}`,
+  );
+  if (!cronOk && !secretOk && !qstashTokenOk) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ctx = createOperatorContext();
+  const result = await ensurePostingSchedules(ctx);
+  return c.json(result);
+});
+
+/** Capture anonymous reserve interest + UTM from social posts into Neon leads. */
+app.post("/ops/leads/reserve-interest", async (c) => {
+  const env = getServerEnv();
+  if (!env.DATABASE_URL) return c.json({ ok: false, error: "no db" }, 503);
+  const body = await c.req.json<{
+    email?: string;
+    phone?: string;
+    name?: string;
+    utm?: Record<string, string>;
+    source?: string;
+  }>();
+  const db = createDb(env.DATABASE_URL);
+  const email = body.email?.trim().toLowerCase() || null;
+  const phone = body.phone ? normalizePhone(body.phone) : null;
+  if (!email && !phone) {
+    return c.json({ ok: false, error: "email or phone required" }, 400);
+  }
+  const existing = email
+    ? await db.query.leads.findFirst({ where: eq(leads.email, email) })
+    : phone
+      ? await db.query.leads.findFirst({ where: eq(leads.phone, phone) })
+      : null;
+  const source = body.source ?? "reserve-web";
+  if (existing) {
+    const [updated] = await db
+      .update(leads)
+      .set({
+        email: email ?? existing.email,
+        phone: phone ?? existing.phone,
+        name: body.name ?? existing.name,
+        utm: body.utm ?? existing.utm,
+        updatedAt: new Date(),
+      })
+      .where(eq(leads.id, existing.id))
+      .returning();
+    await db.insert(leadEvents).values({
+      leadId: existing.id,
+      type: "reserve_interest",
+      fromStatus: existing.status,
+      toStatus: existing.status,
+      source,
+      phone: phone ?? undefined,
+      payload: { utm: body.utm },
+    });
+    return c.json({ ok: true, leadId: updated?.id ?? existing.id });
+  }
+  const [lead] = await db
+    .insert(leads)
+    .values({
+      email: email ?? undefined,
+      phone: phone ?? undefined,
+      name: body.name,
+      source,
+      status: "new",
+      utm: body.utm,
+    })
+    .returning();
+  if (lead) {
+    await db.insert(leadEvents).values({
+      leadId: lead.id,
+      type: "created",
+      toStatus: "new",
+      source,
+      phone: phone ?? undefined,
+      payload: { utm: body.utm },
+    });
+  }
+  return c.json({ ok: true, leadId: lead?.id });
 });
 
 export default app;

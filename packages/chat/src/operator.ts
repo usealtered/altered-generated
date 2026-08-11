@@ -29,6 +29,10 @@ import {
   loadMemoryPreamble,
 } from "./tools";
 import { enqueueCompletionNotice } from "./notify";
+import {
+  enqueuePublish,
+  tryHandleApprovalMessage,
+} from "./posting";
 
 /** Optional env bootstrap only - not a hard singleton agent. */
 async function ensureSoftDefaultAgentSeed(ctx: OperatorContext) {
@@ -106,6 +110,11 @@ SALES FUNNEL (for context when Riley asks; prospect DMs are handled by sales mod
 - Stages: new → contacted → qualified → reserved (checkout sent) → paid | lost
 - Tools: save_lead, get_checkout_link
 
+POSTING PIPELINE (HITL-minimal):
+- Cron/QStash generates X/LinkedIn post idea batches and texts you for one-tap approval.
+- Reply APPROVE ALL, REJECT ALL, APPROVE 1 3 5, or tap the approve link. No detailed review needed.
+- Approved posts publish via Zernio automatically. Tools: generate_post_ideas, list_post_ideas, approve_posts, run_post_publish, posting_status.
+
 FORMATTING (hard rules - also enforced by code sanitizer):
 - Plain text only. No markdown asterisks, bold, italics, code fences, or markdown bullets.
 - Structure with \\n\\n paragraph breaks, and/or multiple send_message calls.
@@ -178,6 +187,26 @@ export async function handleOperatorMessage(input: {
   const thread = await ensureThread(ctx, input.chatThreadId, phone);
   await saveMessage(ctx, thread?.id, "inbound", input.text);
   await bumpMetric(ctx, "imessageInbound");
+
+  // HITL posting: one-tap APPROVE ALL / REJECT ALL before the full ops LLM turn.
+  const approvalReply = await tryHandleApprovalMessage(ctx, input.text);
+  if (approvalReply) {
+    if (input.outbound) {
+      await input.outbound.send(approvalReply);
+      const transcript = input.outbound.joinedTranscript();
+      await saveMessage(ctx, thread?.id, "outbound", transcript);
+      // Kick publish soon after approval so posts go live without waiting for cron.
+      if (/approved/i.test(approvalReply)) {
+        await enqueuePublish(ctx, 8);
+      }
+      return transcript;
+    }
+    await saveMessage(ctx, thread?.id, "outbound", approvalReply);
+    if (/approved/i.test(approvalReply)) {
+      await enqueuePublish(ctx, 8);
+    }
+    return approvalReply;
+  }
 
   if (!ctx.env.OPENROUTER_API_KEY) {
     const reply =

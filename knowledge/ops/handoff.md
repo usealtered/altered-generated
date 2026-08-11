@@ -4,7 +4,7 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (sales-funnel $100 + Chat SDK burst simplification).
+Last updated: 2026-08-11 (HITL posting pipeline + Zernio).
 
 ## HEAD on main
 
@@ -25,6 +25,15 @@ See latest `main`.
 | `PRIMARY_CHECKOUT_URL` | **EMPTY** — needs Stripe Payment Link for $100 |
 | iMessage sales mode | Non-allowlisted → `handleSalesMessage` |
 | Ops mode | Allowlisted (Riley) unchanged |
+| Posting pipeline | Generate + HITL shipped; **Zernio publish blocked on keys** |
+
+### Posting pipeline (new)
+
+- Docs: `knowledge/ops/posting-pipeline.md`
+- Neon: `post_batches`, `post_ideas`, `post_events` (migration `0004_posting`)
+- Approve via iMessage `APPROVE ALL` or `/ops/posts/approve` magic link
+- Cron: Vercel `0 14 * * 1,3,5` generate + `*/15 * * * *` publish; QStash schedules auto-ensured
+- **Blocked:** set on api-generated: `ZERNIO_API_KEY`, `ZERNIO_TWITTER_ACCOUNT_ID`, optional `ZERNIO_PROFILE_ID` / `ZERNIO_LINKEDIN_ACCOUNT_ID`
 
 ### Inbound concurrency (keep it simple)
 
@@ -42,12 +51,12 @@ See latest `main`.
 
 1. Stripe Payment Link ($100) → set `PRIMARY_CHECKOUT_URL` on api-generated
 2. Optional: deploy `apps/web` to `generated.usealtered.com`
+3. Zernio keys for auto-publish (HITL queue still usable)
 
 ### Koa landing copy (sales-funnel-build)
 
 - 3x 90-day win hero candidates extracted from `usealtered/altered` (read-only) → `knowledge/sales/koa-90-day-win-candidates.md`
 - Awaiting Riley pick before locking landing hero promise
-
 
 ### Truncation self-fix (b2e3499)
 
@@ -62,4 +71,5 @@ Riley first bubble clipped as `Who's the target...`. Cause: `truncateForImessage
 
 ```bash
 npx vercel logs --project api-generated --scope altered --environment production --since 30m --query 'altered-ops:trace' --json
+curl -s https://generated.api.usealtered.com/ops/posts/status
 ```

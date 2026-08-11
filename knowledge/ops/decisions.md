@@ -20,6 +20,14 @@ title: Decisions log
 - Measure before vectors: log all AI usage/cost in `ai_events`; funnel movements in `lead_events`.
 - Post-test scale plan lives in `knowledge/ops/memory-and-metrics.md`.
 
+## 2026-08-11 (HITL posting / Zernio)
+
+- **Zernio** is the social posting API (`docs.zernio.com`, env `ZERNIO_API_KEY`). Not Buffer/Typefully.
+- Pipeline: QStash/Vercel Cron generate → iMessage one-tap HITL (`APPROVE ALL` / magic link) → Zernio publish → `post_events` log.
+- Posts CTA to `+13054098546` + UTM'd `/reserve` into existing sales → $100 deposit.
+- Publish blocked until Riley adds Zernio keys on api-generated; generate+HITL work without them.
+- See `ops/posting-pipeline.md` + discrepancy D5.
+
 ## 2026-08-11 (truncation self-fix)
 
 - **Bug:** First visible bubble clipped mid-sentence as `Who's the target...`. Root cause: fast-ack / status path used `truncateForImessage(..., 80)` which ellipsis-clips. Repro: rogue Haiku ack asking "Three quick ones..." (also `maxOutputTokens: 40` finish) → 89 chars → hard clip. Not coalesce race.

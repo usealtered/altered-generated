@@ -6,7 +6,9 @@ title: Outbound content templates (founding cohort)
 
 Derived from `usealtered/altered` positioning (detail-obsessed founders, pressure pivots, redundant thinking). Optimized to drive DMs / texts to **+13054098546** and the $100 reservation deposit.
 
-Channel APIs (IG/X/TikTok auto-post) are **not wired** — no platform keys in this env. Use these as copy bank + manual posting. Track sends in `lead_events` / notes when a prospect replies.
+Channel APIs: **Zernio** is the posting integration (HITL-minimal pipeline). See `ops/posting-pipeline.md`.
+
+Until `ZERNIO_API_KEY` + account IDs are on api-generated, use this file as the copy bank / LLM fallback. After keys land, cron generates + Riley one-tap approves + Zernio publishes automatically.
 
 ## Hooks (X / short)
 
@@ -67,7 +69,9 @@ Text +13054098546.
 
 ## Scheduling scaffolding (no external APIs)
 
-Track intended posts in Neon via `upsert_dev_task` workstream `outbound-content` or a lead note. Suggested weekly cadence until APIs exist:
+**Superseded 2026-08-11:** use the HITL posting pipeline (`ops/posting-pipeline.md`) instead of manual-only tracking. Suggested cadence remains Mon/Wed/Fri generate ticks until Riley changes it.
+
+Legacy note (pre-Zernio): Track intended posts in Neon via `upsert_dev_task` workstream `outbound-content` or a lead note.
 
 | Day | Asset |
 |---|---|
@@ -76,7 +80,7 @@ Track intended posts in Neon via `upsert_dev_task` workstream `outbound-content`
 | Fri | Founding CTA (Post C) |
 | Daily | 5 manual DMs from ICP list |
 
-**Blocked on keys:** X API, Meta/IG Graph, TikTok Content Posting, Buffer/Typefully. Do not stall — post manually.
+**Blocked on keys:** `ZERNIO_API_KEY`, `ZERNIO_TWITTER_ACCOUNT_ID` (optional LinkedIn + profile). Do not stall sales — post manually or run `generate_post_ideas` for HITL queue.
 
 ## Tracking
 

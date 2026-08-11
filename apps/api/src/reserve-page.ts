@@ -147,6 +147,15 @@ export function renderReserveHtml(opts?: {
     const hasCheckout = ${hasCheckout ? "true" : "false"};
     const checkoutUrl = ${JSON.stringify(checkout)};
     const api = location.origin;
+    const utm = (() => {
+      const p = new URLSearchParams(location.search);
+      const out = {};
+      for (const k of ["utm_source","utm_medium","utm_campaign","utm_content","utm_term"]) {
+        const v = p.get(k);
+        if (v) out[k] = v;
+      }
+      return out;
+    })();
     document.getElementById("f").addEventListener("submit", async (e) => {
       e.preventDefault();
       const err = document.getElementById("err");
@@ -158,7 +167,8 @@ export function renderReserveHtml(opts?: {
         name: String(fd.get("name") || "") || undefined,
         notes: String(fd.get("notes") || "") || undefined,
         wantDepositCheckout: true,
-        source: "web-reserve",
+        source: utm.utm_source ? ("social:" + utm.utm_source) : "web-reserve",
+        utm: Object.keys(utm).length ? utm : undefined,
       };
       try {
         const res = await fetch(api + "/leads", {

@@ -303,3 +303,96 @@ export const memories = pgTable(
     index("memories_key_idx").on(t.key),
   ],
 );
+
+/** Social post idea lifecycle for HITL-minimal outbound pipeline. */
+export const postIdeaStatusEnum = pgEnum("post_idea_status", [
+  "draft",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "publishing",
+  "published",
+  "failed",
+  "cancelled",
+]);
+
+/** Batch of ideas queued for one-tap Riley approval. */
+export const postBatches = pgTable(
+  "post_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    channelHint: varchar("channel_hint", { length: 64 }).notNull().default("twitter"),
+    ideaCount: integer("idea_count").notNull().default(0),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("post_batches_status_idx").on(t.status),
+    index("post_batches_created_idx").on(t.createdAt),
+  ],
+);
+
+export const postIdeas = pgTable(
+  "post_ideas",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    batchId: uuid("batch_id").references(() => postBatches.id, {
+      onDelete: "set null",
+    }),
+    /** 1-based index within the batch for APPROVE 1 3 replies. */
+    batchIndex: integer("batch_index"),
+    status: postIdeaStatusEnum("status").notNull().default("draft"),
+    platform: varchar("platform", { length: 32 }).notNull().default("twitter"),
+    hook: text("hook"),
+    body: text("body").notNull(),
+    cta: text("cta"),
+    /** Full post text that will be published (body + CTA + UTM landing). */
+    content: text("content").notNull(),
+    landingUrl: text("landing_url"),
+    utm: jsonb("utm"),
+    zernioPostId: text("zernio_post_id"),
+    zernioPlatformUrl: text("zernio_platform_url"),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    error: text("error"),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("post_ideas_status_idx").on(t.status),
+    index("post_ideas_batch_idx").on(t.batchId),
+    index("post_ideas_platform_idx").on(t.platform),
+    index("post_ideas_created_idx").on(t.createdAt),
+  ],
+);
+
+/** Append-only log for generate / approve / publish outcomes. */
+export const postEvents = pgTable(
+  "post_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postIdeaId: uuid("post_idea_id").references(() => postIdeas.id, {
+      onDelete: "set null",
+    }),
+    batchId: uuid("batch_id").references(() => postBatches.id, {
+      onDelete: "set null",
+    }),
+    type: varchar("type", { length: 64 }).notNull(),
+    source: varchar("source", { length: 64 }),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("post_events_idea_idx").on(t.postIdeaId),
+    index("post_events_batch_idx").on(t.batchId),
+    index("post_events_type_idx").on(t.type),
+    index("post_events_created_idx").on(t.createdAt),
+  ],
+);
