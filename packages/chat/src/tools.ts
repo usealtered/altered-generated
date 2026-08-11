@@ -162,7 +162,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
   const tools = {
     send_message: tool({
       description:
-        "Send one plain-text iMessage bubble to Riley now. Call multiple times for multi-part replies. Use kind=status for a short ack before other tools (max ~80 chars). Use kind=reply for answers. Prefer \\n\\n inside a bubble or multiple calls for structure. No markdown. No em dashes.",
+        "Send one plain-text iMessage bubble to Riley now. Call multiple times for multi-part replies. The runtime already sent a status ack - use kind=reply for answers (kind=status only if you truly need another short progress ping, max ~80 chars). Prefer \\n\\n inside a bubble or multiple calls for structure. No markdown. No em dashes.",
       inputSchema: z.object({
         text: z.string().min(1).max(1400),
         kind: z.enum(["status", "reply"]).optional().default("reply"),

@@ -4,11 +4,11 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (concurrency, read-receipt race, forced-tool notify, sanitizer).
+Last updated: 2026-08-11 (instant pre-LLM status ack).
 
 ## HEAD on main
 
-See latest `main` after concurrency/runtime batch (read receipt waitUntil, burst concurrency, notify aggregation, sanitize, forced tools, AGENTS self-fix).
+See latest `main`. Status ack ("Checking that now.") is now deterministic and pre-LLM.
 
 ## Already shipped (do not redo)
 

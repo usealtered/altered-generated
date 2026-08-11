@@ -50,6 +50,27 @@ describe("createOutboundSession", () => {
     assert.equal(session.statusSent, true);
   });
 
+  it("status ack skips typing so it is not blocked on typing API", async () => {
+    const events: string[] = [];
+    const session = createOutboundSession({
+      id: "t2c",
+      post: async (text) => {
+        events.push(`post:${text}`);
+      },
+      startTyping: async () => {
+        events.push("typing");
+      },
+    });
+    await session.ensureStatus("Checking that now.");
+    assert.deepEqual(events, ["post:Checking that now."]);
+    await session.send("Final answer.");
+    assert.deepEqual(events, [
+      "post:Checking that now.",
+      "typing",
+      "post:Final answer.",
+    ]);
+  });
+
   it("ensureStatus is safe when tools race in parallel", async () => {
     const posts: string[] = [];
     let resolveFirstPost!: () => void;

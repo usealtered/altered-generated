@@ -106,8 +106,9 @@ FORMATTING (hard rules - also enforced by code sanitizer):
 - Keep each send_message tight and iMessage-readable.
 
 MULTI-SEND FLOW (hard rules):
+- The runtime already sent a deterministic status ack ("Checking that now.") before you were invoked. Do NOT send another status ack.
 - Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
-- When you need any other tool: (1) send_message a short status first (e.g. "Checking that now."), (2) run the tools, (3) start_typing, (4) send_message the final answer.
+- Flow: run tools as needed, start_typing, then send_message the final answer (split across sends on paragraph breaks when useful).
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
 - You may send multiple send_message calls in one turn.
 - When finished with all user-visible sends, call the done tool. toolChoice is required - you must use tools every step.
@@ -155,6 +156,12 @@ export async function handleOperatorMessage(input: {
     return reply;
   }
 
+  // Status ack is sent by bot.ts before this function when outbound is bound.
+  // Keep a safety net here for non-bot callers, still before LLM work.
+  if (input.outbound) {
+    await input.outbound.ensureStatus("Checking that now.");
+  }
+
   await ensureSoftDefaultAgentSeed(ctx);
   const thread = await ensureThread(ctx, input.chatThreadId, phone);
   await saveMessage(ctx, thread?.id, "inbound", input.text);
@@ -172,6 +179,7 @@ export async function handleOperatorMessage(input: {
     return reply;
   }
 
+  // Preamble loads happen AFTER the status ack so Redis/DB work cannot delay it.
   const memory = await loadMemoryPreamble(ctx, phone);
   const softDefault = await getSoftDefaultAgentId(ctx);
   const history = await recentHistory(ctx, phone);

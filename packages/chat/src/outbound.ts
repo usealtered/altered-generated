@@ -42,7 +42,8 @@ export function createOutboundSession(transport: ThreadTransport) {
     await withThreadSendLock(transport.id, async () => {
       for (const part of parts) {
         if (!part.trim()) continue;
-        await typing();
+        // Status acks must be near-instant: skip typing API round-trip.
+        if (kind !== "status") await typing();
         await transport.post(part);
         sent.push(part);
         if (kind === "status") statusSent = true;

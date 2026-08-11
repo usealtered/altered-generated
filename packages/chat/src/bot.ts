@@ -168,14 +168,27 @@ export function createAlteredChat() {
     // (Primary path is webhook-layer waitUntil; this is a same-handler backup.)
     void fireReadReceipt(adapter, thread.id, { phone });
 
-    await thread.subscribe();
-
     const outbound = createOutboundSession({
       id: thread.id,
       post: (body) => thread.post(body),
       startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
       sendReadReceipt: () => fireReadReceipt(adapter, thread.id, { phone }),
     });
+
+    // Deterministic status ack BEFORE subscribe / DB preamble / LLM / tools.
+    // Previously "Checking that now." waited on the first OpenRouter tool round-trip
+    // (often tens of seconds). This must not depend on model latency.
+    const ackStarted = Date.now();
+    const ack = await outbound.ensureStatus("Checking that now.");
+    console.info("[altered-ops] status ack", {
+      phone,
+      threadId: thread.id,
+      skipped: ack.skipped,
+      ms: Date.now() - ackStarted,
+    });
+
+    // Subscribe after ack so Redis/state work cannot delay the first bubble.
+    await thread.subscribe().catch(() => undefined);
 
     try {
       const reply = await handleOperatorMessage({

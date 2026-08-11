@@ -13,8 +13,9 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 3. **Read receipt immediately** (waitUntil-tracked) before Chat SDK handler lock / status sends
 4. Handler returns HTTP 200 immediately via Chat SDK `waitUntil` (Vercel `@vercel/functions`)
 5. Chat SDK **burst** concurrency (per-thread lock, ~700ms debounce): overlapping inbound messages coalesce; latest handled with `context.skipped`
-6. AI SDK `generateText` with `toolChoice: "required"` + `done` tool (no execute) - no raw assistant dumps
-7. Outbound path: `send_message` / `start_typing` (multi-send). Typing before each bubble. Code sanitizer strips em dashes/markdown.
+6. **Deterministic status ack** ("Checking that now.") sent immediately after receipt - before subscribe/DB/LLM. Not model-gated.
+7. AI SDK `generateText` with `toolChoice: "required"` + `done` tool (no execute) - no raw assistant dumps
+8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status ack). Code sanitizer strips em dashes/markdown.
 8. Per-thread outbound send lock serializes status bubbles vs background completion notices
 9. Cursor completions: QStash poll → Redis debounce (~3s) → forced-tool plain-text summary (never raw markdown tables)
 10. `prompt_cursor` resumes or auto-spawns a Cloud Agent by **workstream**
