@@ -5,11 +5,11 @@ import {
   handleOperatorMessage,
 } from "@altered/chat";
 import { createCursorClient } from "@altered/cursor-bridge";
-import { createDb, dailyMetrics, leadEvents, leads } from "@altered/db";
+import { createDb, dailyMetrics, leadEvents, leads, messages, threads } from "@altered/db";
 import { getServerEnv, missingCriticalEnv } from "@altered/env";
 import { getKnowledgeRoot } from "@altered/knowledge";
 import { answerWithRag, loadKnowledgeDir } from "@altered/rag";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 // Deposit amount resolved from knowledge (not env)
 async function depositCents() {
@@ -141,10 +141,22 @@ export const router = os.router({
       return {
         day,
         leadsCreated: 0,
+        leadsCreatedToday: 0,
         depositsCount: 0,
         depositsCents: 0,
         goalCents,
         progress: 0,
+        inboundMessagesToday: 0,
+        uniquePhonesMessagedToday: 0,
+        imessageInbound: 0,
+        funnelStages: {
+          new: 0,
+          contacted: 0,
+          qualified: 0,
+          reserved: 0,
+          paid: 0,
+          lost: 0,
+        },
       };
     }
     const db = createDb(env.DATABASE_URL);
@@ -152,13 +164,58 @@ export const router = os.router({
       where: eq(dailyMetrics.day, day),
     });
     const depositsCents = row?.depositsCents ?? 0;
+    const dayStart = new Date(`${day}T00:00:00.000Z`);
+
+    const [inboundAgg] = await db
+      .select({
+        inboundMessages: sql<number>`count(*)::int`,
+        uniquePhones: sql<number>`count(distinct ${threads.phone})::int`,
+      })
+      .from(messages)
+      .innerJoin(threads, eq(messages.threadId, threads.id))
+      .where(
+        and(
+          eq(messages.direction, "inbound"),
+          sql`${messages.createdAt} >= ${dayStart}`,
+        ),
+      );
+
+    const stageRows = await db
+      .select({
+        status: leads.status,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(leads)
+      .groupBy(leads.status);
+    const stages = Object.fromEntries(
+      stageRows.map((r) => [r.status, r.n]),
+    ) as Record<string, number>;
+
+    const [leadsTodayRow] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(leads)
+      .where(sql`${leads.createdAt} >= ${dayStart}`);
+
     return {
       day,
       leadsCreated: row?.leadsCreated ?? 0,
+      leadsCreatedToday: leadsTodayRow?.n ?? 0,
       depositsCount: row?.depositsCount ?? 0,
       depositsCents,
       goalCents,
       progress: Math.min(1, depositsCents / goalCents),
+      inboundMessagesToday:
+        inboundAgg?.inboundMessages ?? row?.imessageInbound ?? 0,
+      uniquePhonesMessagedToday: inboundAgg?.uniquePhones ?? 0,
+      imessageInbound: inboundAgg?.inboundMessages ?? row?.imessageInbound ?? 0,
+      funnelStages: {
+        new: stages.new ?? 0,
+        contacted: stages.contacted ?? 0,
+        qualified: stages.qualified ?? 0,
+        reserved: stages.reserved ?? 0,
+        paid: stages.paid ?? 0,
+        lost: stages.lost ?? 0,
+      },
     };
   }),
 

@@ -1,4 +1,3 @@
-import { EarlyAccessForm } from "./form";
 import styles from "./page.module.css";
 
 const HERO_HEADLINE =
@@ -7,66 +6,42 @@ const HERO_HEADLINE =
 const HERO_SUBHEAD =
   "Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.";
 
+/** Deep-link into Messages with Koa. Price stays in-thread after qualify. */
+const IMESSAGE_HREF =
+  "sms:+13054098546&body=Hey%20Koa%20-%20I%20want%20to%20talk%20about%20ALTERED.";
+
 export const metadata = {
-  title: "ALTERED — $100 founding reservation",
-  description: `${HERO_HEADLINE} $100 reservation deposit credits toward the $499 ALTERED program.`,
+  title: "ALTERED",
+  description: HERO_HEADLINE,
 };
 
-export default async function EarlyAccessPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ reserved?: string; canceled?: string }>;
-}) {
-  const params = await searchParams;
-
+export default function EarlyAccessPage() {
   return (
     <main className={styles.page}>
       <div className={styles.grid} aria-hidden />
       <header className={styles.top}>
         <div className={styles.brand}>ALTERED</div>
-        <div className={styles.meta}>FOUNDING COHORT // $100</div>
+        <div className={styles.meta}>FOUNDING COHORT</div>
       </header>
 
       <section className={styles.hero}>
-        <p className={styles.kicker}>ALTERED · founding cohort</p>
+        <p className={styles.kicker}>
+          Always-on iMessage for detail-obsessed founders
+        </p>
         <h1 className={styles.mark}>ALTERED</h1>
         <p className={styles.headline}>{HERO_HEADLINE}</p>
         <p className={styles.lede}>{HERO_SUBHEAD}</p>
         <div className={styles.ctaRow}>
-          <a className={styles.primary} href="#reserve">
-            Reserve with $100 deposit
+          <a className={styles.primary} href={IMESSAGE_HREF}>
+            Text Koa
           </a>
-          <span className={styles.price}>
-            Credits toward $499 (net $399) · limited seats
-          </span>
+          <span className={styles.hint}>Opens Messages · +1 (305) 409-8546</span>
         </div>
-        {params.reserved ? (
-          <p className={styles.flashOk}>
-            Reservation received. We&apos;ll confirm by email.
-          </p>
-        ) : null}
-        {params.canceled ? (
-          <p className={styles.flashWarn}>
-            Checkout canceled - seat still available.
-          </p>
-        ) : null}
-      </section>
-
-      <section className={styles.band} id="reserve">
-        <div className={styles.bandCopy}>
-          <h2>Claim your founding seat</h2>
-          <p>
-            $100 program reservation deposit credited to the $499 program (net
-            $399). Six-month, AI-allowance based, part-service founder
-            customization inside ALTERED. Text +13054098546 anytime.
-          </p>
-        </div>
-        <EarlyAccessForm />
       </section>
 
       <footer className={styles.footer}>
         <span>usealtered</span>
-        <span>text +1 (305) 409-8546</span>
+        <span>+13054098546</span>
       </footer>
     </main>
   );

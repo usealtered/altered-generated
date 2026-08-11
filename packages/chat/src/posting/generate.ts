@@ -59,11 +59,10 @@ const FALLBACK_IDEAS: z.infer<typeof ideaSchema>["ideas"] = [
 ];
 
 function landingBase(ctx: OperatorContext): string {
-  const api = (ctx.env.APP_BASE_URL ?? "https://generated.api.usealtered.com").replace(
-    /\/$/,
-    "",
-  );
-  return `${api}/reserve`;
+  const site = (
+    ctx.env.SITE_BASE_URL ?? "https://generated.usealtered.com"
+  ).replace(/\/$/, "");
+  return `${site}/early-access`;
 }
 
 export function buildLandingUrl(

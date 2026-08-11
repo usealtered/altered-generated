@@ -35,7 +35,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { router } from "./router";
-import { reservePageHandler } from "./reserve-page";
+import { reserveRedirectHandler } from "./reserve-page";
 
 const app = new Hono();
 const rpc = new RPCHandler(router);
@@ -88,8 +88,8 @@ app.get("/", (c) =>
   }),
 );
 
-app.get("/reserve", (c) => reservePageHandler(c));
-app.get("/early-access", (c) => c.redirect("/reserve", 302));
+app.get("/reserve", (c) => reserveRedirectHandler(c));
+app.get("/early-access", (c) => reserveRedirectHandler(c));
 
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpc.handle(c.req.raw, {
@@ -479,6 +479,9 @@ app.get("/ops/posts/status", async (c) => {
     hasZernioKey: Boolean(env.ZERNIO_API_KEY),
     hasTwitterAccount: Boolean(env.ZERNIO_TWITTER_ACCOUNT_ID),
     hasProfile: Boolean(env.ZERNIO_PROFILE_ID),
+    twitterAccountIdSuffix: env.ZERNIO_TWITTER_ACCOUNT_ID
+      ? env.ZERNIO_TWITTER_ACCOUNT_ID.slice(-6)
+      : null,
     schedules: {
       generateCron: "0 14 * * 1,3,5",
       publishCron: "*/15 * * * *",

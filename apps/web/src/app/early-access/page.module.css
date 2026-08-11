@@ -135,6 +135,11 @@
   font-size: 0.85rem;
 }
 
+.hint {
+  color: var(--mist);
+  font-size: 0.85rem;
+}
+
 .flashOk,
 .flashWarn {
   margin-top: 1.25rem;
