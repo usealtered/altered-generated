@@ -16,11 +16,11 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 6. **Deterministic status ack** ("Checking that now.") sent immediately after receipt - before subscribe/DB/LLM. Not model-gated.
 7. AI SDK `generateText` with `toolChoice: "required"` + `done` tool (no execute) - no raw assistant dumps
 8. Outbound path: `send_message` / `start_typing` (multi-send). Typing before reply bubbles (skipped for status ack). Code sanitizer strips em dashes/markdown.
-8. Per-thread outbound send lock serializes status bubbles vs background completion notices
-9. Cursor completions: QStash poll → Redis debounce (~3s) → forced-tool plain-text summary (never raw markdown tables)
-10. `prompt_cursor` resumes or auto-spawns a Cloud Agent by **workstream**
-11. Important facts go to keyed `memories` (Neon) + Redis + `knowledge/`
-12. Each LLM turn writes `ai_events`
+9. Per-thread outbound send lock serializes status bubbles vs background completion notices
+10. Cursor completions: QStash poll → Redis debounce (~3s) → forced-tool plain-text summary (never raw markdown tables)
+11. `prompt_cursor` resumes or auto-spawns a Cloud Agent by **workstream**
+12. Important facts go to keyed `memories` (Neon) + Redis + `knowledge/`
+13. Each LLM turn writes `ai_events`
 
 ## Concurrency model (actual)
 
