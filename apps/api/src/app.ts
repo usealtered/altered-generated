@@ -671,7 +671,7 @@ app.post("/ops/posts/idea/:id/action", async (c) => {
 });
 
 app.post("/ops/ensure-cadence-schedules", async (c) => {
-  if (!verifyCronRequest(c.req.raw)) {
+  if (!verifyCronRequest(c.req.raw) && !verifyOpsDashboard(c.req.raw)) {
     return c.json({ error: "unauthorized" }, 401);
   }
   const ctx = createOperatorContext();
