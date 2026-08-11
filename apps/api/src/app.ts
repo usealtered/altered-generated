@@ -25,6 +25,12 @@ import {
   buildApprovalLinks,
   zernioConfigured,
   postingEnabled,
+  applyIdeaAction,
+  buildOpsDashboard,
+  runDailyAnalyticsSnapshot,
+  runHourlyConversationReview,
+  runLeadGenSweep,
+  ensureOpsCadenceSchedules,
 } from "@altered/chat";
 import { createDb, cursorJobs, leads, leadEvents } from "@altered/db";
 import { getServerEnv, normalizePhone } from "@altered/env";
@@ -83,8 +89,16 @@ app.get("/", (c) =>
       "/webhooks/qstash/notify-flush",
       "/webhooks/qstash/posts/generate",
       "/webhooks/qstash/posts/publish",
+      "/webhooks/qstash/ops/hourly-review",
+      "/webhooks/qstash/ops/daily-analytics",
+      "/webhooks/qstash/ops/lead-gen-sweep",
     ],
     cron: ["/cron/posts/generate", "/cron/posts/publish"],
+    ops: {
+      dashboard: "/ops/dashboard",
+      ideaAction: "/ops/posts/idea/:id/action",
+      ensureCadence: "/ops/ensure-cadence-schedules",
+    },
   }),
 );
 
@@ -277,9 +291,23 @@ async function verifyQstash(req: Request) {
 function verifyCronRequest(req: Request): boolean {
   const env = getServerEnv();
   if (req.headers.get("x-vercel-cron") === "1") return true;
-  if (!env.CRON_SECRET) return false;
   const auth = req.headers.get("authorization") ?? "";
-  return auth === `Bearer ${env.CRON_SECRET}`;
+  if (env.CRON_SECRET && auth === `Bearer ${env.CRON_SECRET}`) return true;
+  // Allow QStash token as ops bearer when CRON_SECRET unset (Hobby / bootstrap).
+  if (env.QSTASH_TOKEN && auth === `Bearer ${env.QSTASH_TOKEN}`) return true;
+  return false;
+}
+
+function verifyOpsDashboard(req: Request): boolean {
+  const env = getServerEnv();
+  const secret =
+    env.OPS_DASHBOARD_SECRET || env.CRON_SECRET || env.QSTASH_TOKEN;
+  if (!secret) return false;
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth === `Bearer ${secret}`) return true;
+  const url = new URL(req.url);
+  const key = url.searchParams.get("key");
+  return Boolean(key && key === secret);
 }
 
 app.post("/webhooks/qstash/cursor-poll", async (c) => {
@@ -402,23 +430,17 @@ app.get("/cron/posts/publish", async (c) => {
   return c.json(result);
 });
 
-/** One-tap approve/reject magic link (iMessage-friendly). */
+/** One-tap approve/reject magic link — JSON only (no HTML on api-generated). */
 app.get("/ops/posts/approve", async (c) => {
   const batchId = c.req.query("batch");
   const action = c.req.query("action") ?? "approve_all";
   const token = c.req.query("token") ?? "";
   if (!batchId || !token) {
-    return c.html(
-      `<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Missing params</h1><p>batch and token required.</p></body></html>`,
-      400,
-    );
+    return c.json({ ok: false, error: "batch and token required" }, 400);
   }
   const ctx = createOperatorContext();
   if (!verifyBatchActionToken(ctx, batchId, action, token)) {
-    return c.html(
-      `<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Invalid or expired link</h1></body></html>`,
-      401,
-    );
+    return c.json({ ok: false, error: "invalid or expired token" }, 401);
   }
   const decision =
     action === "reject_all"
@@ -432,14 +454,17 @@ app.get("/ops/posts/approve", async (c) => {
   if (result.ok && result.approved > 0) {
     await enqueuePublish(ctx, 5);
   }
-  const title = result.ok
-    ? decision.kind === "approve_all"
-      ? `Approved ${result.approved} post(s)`
-      : `Rejected ${result.rejected} post(s)`
-    : `Could not apply: ${result.error ?? "unknown"}`;
-  return c.html(
-    `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#07110f;color:#d7ebe3;padding:2.5rem;min-height:100vh"><h1 style="font-size:1.5rem">${title}</h1><p style="color:#9bb8ad">Approved posts publish via Zernio on the next cron tick (or within seconds if queued).</p><p><a style="color:#b6ff3c" href="/ops/posts/pending">View pending</a></p></body></html>`,
-  );
+  return c.json({
+    ok: result.ok,
+    action: decision.kind,
+    approved: result.approved,
+    rejected: result.rejected,
+    error: result.error,
+    note:
+      result.approved > 0
+        ? "Approved posts enqueue for Zernio publish within seconds."
+        : undefined,
+  });
 });
 
 app.get("/ops/posts/pending", async (c) => {
@@ -576,6 +601,83 @@ app.post("/ops/leads/reserve-interest", async (c) => {
     });
   }
   return c.json({ ok: true, leadId: lead?.id });
+});
+
+app.post("/webhooks/qstash/ops/hourly-review", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json().catch(() => ({} as { source?: string }));
+  const ctx = createOperatorContext();
+  const result = await runHourlyConversationReview(ctx, {
+    source: (body as { source?: string }).source ?? "qstash",
+  });
+  return c.json(result);
+});
+
+app.post("/webhooks/qstash/ops/daily-analytics", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json().catch(() => ({} as { source?: string }));
+  const ctx = createOperatorContext();
+  const result = await runDailyAnalyticsSnapshot(ctx, {
+    source: (body as { source?: string }).source ?? "qstash",
+  });
+  return c.json(result);
+});
+
+app.post("/webhooks/qstash/ops/lead-gen-sweep", async (c) => {
+  const ok = await verifyQstash(c.req.raw);
+  if (!ok) return c.json({ error: "invalid signature" }, 401);
+  const body = await c.req.json().catch(() => ({} as { source?: string }));
+  const ctx = createOperatorContext();
+  const result = await runLeadGenSweep(ctx, {
+    source: (body as { source?: string }).source ?? "qstash",
+  });
+  return c.json(result);
+});
+
+app.get("/ops/dashboard", async (c) => {
+  if (!verifyOpsDashboard(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ctx = createOperatorContext();
+  const data = await buildOpsDashboard(ctx);
+  return c.json(data);
+});
+
+app.post("/ops/posts/idea/:id/action", async (c) => {
+  if (!verifyOpsDashboard(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ideaId = c.req.param("id");
+  const body = await c.req.json<{
+    action: "approve" | "reject" | "request_modification";
+    note?: string;
+  }>();
+  if (
+    !body?.action ||
+    !["approve", "reject", "request_modification"].includes(body.action)
+  ) {
+    return c.json({ error: "action required" }, 400);
+  }
+  const ctx = createOperatorContext();
+  const result = await applyIdeaAction(ctx, {
+    ideaId,
+    action: body.action,
+    note: body.note,
+    source: "ops-dashboard",
+  });
+  return c.json(result, result.ok ? 200 : 400);
+});
+
+app.post("/ops/ensure-cadence-schedules", async (c) => {
+  if (!verifyCronRequest(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ctx = createOperatorContext();
+  const posting = await ensurePostingSchedules(ctx);
+  const cadence = await ensureOpsCadenceSchedules(ctx);
+  return c.json({ posting, cadence });
 });
 
 export default app;

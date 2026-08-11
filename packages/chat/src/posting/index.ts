@@ -24,6 +24,7 @@ import {
   zernioConfigured,
   zernioListAccounts,
 } from "./zernio";
+import { applyIdeaAction, type IdeaModAction } from "./idea-actions";
 import type { OperatorContext } from "../operator-context";
 
 export {
@@ -46,8 +47,9 @@ export {
   platformsForEnv,
   zernioConfigured,
   zernioListAccounts,
+  applyIdeaAction,
 };
-export type { ApprovalAction };
+export type { ApprovalAction, IdeaModAction };
 
 /**
  * Full generate tick: ensure schedules → generate batch → notify Riley.

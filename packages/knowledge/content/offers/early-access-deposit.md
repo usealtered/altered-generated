@@ -37,9 +37,9 @@ If unset, landing + iMessage must still capture the lead and say the reservation
 
 **Subhead:** Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.
 
-**CTA under hero:** Reserve with $100 deposit (credits toward $499, net $399).
+**CTA under hero:** Text Koa (deep-link to +13054098546). Landing page has **no price, no Stripe, no checkout** — price is introduced only in iMessage after qualify.
 
-Surfaces: `apps/web` `/early-access` (site root redirects here) and API interim `/reserve`.
+Surfaces: `apps/web` `/early-access` (site root redirects here). API `/reserve` and `/early-access` are **302 redirects** to the site (no marketing HTML on api-generated).
 
 ## Prior band
 

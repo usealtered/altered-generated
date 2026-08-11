@@ -4,13 +4,20 @@ import { z } from "zod";
 const emptyToUndefined = (value: unknown) =>
   value === "" || value === null || value === undefined ? undefined : value;
 
+/** Vercel CLI env pull redacts Sensitive vars as literal "[SENSITIVE]" — treat as unset. */
+const scrubSensitive = (value: unknown) => {
+  const v = emptyToUndefined(value);
+  if (typeof v === "string" && v.trim() === "[SENSITIVE]") return undefined;
+  return v;
+};
+
 const optionalString = z.preprocess(
-  emptyToUndefined,
+  scrubSensitive,
   z.string().min(1).optional(),
 );
 
 const optionalUrl = z.preprocess(
-  emptyToUndefined,
+  scrubSensitive,
   z.string().url().optional(),
 );
 
@@ -76,6 +83,8 @@ export const serverEnvSchema = z.object({
   POSTING_APPROVAL_SECRET: optionalString,
   /** Optional bearer for Vercel Cron routes (x-vercel-cron also accepted). */
   CRON_SECRET: optionalString,
+  /** Shared secret for ops dashboard (/ops on web + /ops/dashboard on API). */
+  OPS_DASHBOARD_SECRET: optionalString,
   /** Set "false" to pause generate/publish crons without removing schedules. */
   POSTING_ENABLED: optionalString,
 });

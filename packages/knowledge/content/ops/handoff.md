@@ -4,11 +4,20 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (metrics integrity split + Vercel allowlist + HITL posting).
+Last updated: 2026-08-11 (sprint: Zernio live + ops dashboard + cadence + metrics).
 
 ## HEAD on main
 
 See latest `main`.
+
+### Sprint proof (2026-08-11)
+
+1. **Zernio live:** https://twitter.com/i/web/status/2087242628513271998 (`zernioConfigured=true`). Note: local `vercel env pull` can redact ZERNIO_* as `[SENSITIVE]` — production has real values; env scrubber ignores that literal.
+2. **API domain:** JSON-only root + ops approve now returns JSON (no marketing HTML). `/reserve` is 302 → site.
+3. **Landing:** no price in UI or root metadata. CTA = Text Koa only. Sales first-touch proof: no $100/$499.
+4. **Metrics:** migration `0005` applied. prospectFunnel vs internalOps never summed.
+5. **Ops dashboard:** `generated.usealtered.com/ops?key=OPS_DASHBOARD_SECRET` (falls back to CRON_SECRET/QSTASH_TOKEN on API).
+6. **Cadence QStash:** hourly review, daily analytics snapshot, lead-gen sweep — `POST /ops/ensure-cadence-schedules`.
 
 ### Metrics integrity (URGENT fix 2026-08-11)
 

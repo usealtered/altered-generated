@@ -89,5 +89,18 @@ export {
   getLatestPendingBatch,
   listPendingBatchIdeas,
   buildApprovalLinks,
+  applyIdeaAction,
 } from "./posting";
-export type { ApprovalAction } from "./posting";
+export type { ApprovalAction, IdeaModAction } from "./posting";
+export {
+  buildOpsDashboard,
+  runDailyAnalyticsSnapshot,
+  runHourlyConversationReview,
+  runLeadGenSweep,
+} from "./ops-cadence";
+export {
+  ensureOpsCadenceSchedules,
+  REVIEW_CRON,
+  SNAPSHOT_CRON,
+  LEADGEN_CRON,
+} from "./ops-cadence-schedule";

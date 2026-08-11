@@ -43,6 +43,13 @@
       "when": 1786470000000,
       "tag": "0005_metrics_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786472000000,
+      "tag": "0006_ops_cadence",
+      "breakpoints": true
     }
   ]
 }

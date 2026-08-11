@@ -412,3 +412,60 @@ export const postEvents = pgTable(
     index("post_events_created_idx").on(t.createdAt),
   ],
 );
+
+/** Daily / hourly analytics snapshots for the ops dashboard (never blend prospect+ops). */
+export const analyticsSnapshots = pgTable(
+  "analytics_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    day: varchar("day", { length: 10 }).notNull(),
+    kind: varchar("kind", { length: 32 }).notNull().default("daily"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("analytics_snapshots_created_idx").on(t.createdAt),
+    index("analytics_snapshots_day_kind_idx").on(t.day, t.kind),
+  ],
+);
+
+/** Hourly Koa tone / missed-opportunity review findings. */
+export const conversationReviews = pgTable(
+  "conversation_reviews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    threadId: uuid("thread_id"),
+    phone: varchar("phone", { length: 32 }),
+    kind: varchar("kind", { length: 32 }).notNull().default("hourly_tone"),
+    severity: varchar("severity", { length: 16 }).notNull().default("info"),
+    findings: text("findings").notNull(),
+    missedOpportunity: boolean("missed_opportunity").notNull().default(false),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("conversation_reviews_created_idx").on(t.createdAt),
+    index("conversation_reviews_phone_idx").on(t.phone),
+    index("conversation_reviews_severity_idx").on(t.severity),
+  ],
+);
+
+/** Proactive lead-gen drafts (posts/DMs) from the standing cadence sweep. */
+export const leadGenDrafts = pgTable(
+  "lead_gen_drafts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    channel: varchar("channel", { length: 32 }).notNull().default("x_post"),
+    hook: text("hook").notNull(),
+    body: text("body").notNull(),
+    cta: text("cta"),
+    status: varchar("status", { length: 32 }).notNull().default("draft"),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("lead_gen_drafts_status_idx").on(t.status),
+    index("lead_gen_drafts_created_idx").on(t.createdAt),
+  ],
+);
