@@ -13,3 +13,9 @@ Append-only notes from iMessage `remember` commands and operator decisions.
 - Riley prefs documented in `knowledge/ops/preferences.md` (Git merge-when-complete, Vercel scope, continuity).
 - Restart-safe: new chats should read AGENTS.md + preferences.md + `list_dev_tasks` / `list_cursor_agents`.
 - Pre-test slice approved: AI cost events, tight keyed-memory preamble, lead_events; defer vectors/FTS until measured (`memory-and-metrics.md`).
+
+## 2026-08-11
+
+- Shipped iMessage runtime fix to main (`cc6ea04`): non-blocking webhook `waitUntil`, Sendblue fork + read receipts, typing-before-send, multi-send tools, preserve `\n\n` / split paragraphs, no-em-dash plain-text system prompt.
+- Do not re-block the webhook by awaiting full LLM before HTTP 200 (that was briefly on main and wrong for latency).
+- Archive-ready: see `knowledge/ops/handoff.md`. Open: live smoke-test + Vercel log pull + Neon audit once secrets available.
