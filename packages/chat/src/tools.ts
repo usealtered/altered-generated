@@ -33,7 +33,6 @@ import {
 } from "./agents";
 import { listDevTasks, upsertDevTask } from "./tasks";
 import {
-  generateProofPng,
   resolveUiMedia,
   type UiMessagePayload,
 } from "@altered/ui-message";
@@ -196,6 +195,10 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
         let payload: UiMessagePayload;
         if (proof) {
+          // Lazy: keeps sharp/native bindings off the webhook cold path.
+          const { generateProofPng } = await import(
+            "@altered/ui-message/proof-image"
+          );
           const img = await generateProofPng({
             subtitle: "ui-message via operator tool",
           });

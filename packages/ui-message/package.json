@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./proof-image": "./src/proof-image.ts"
   },
   "scripts": {
     "test": "tsx --test src/render.test.ts src/proof-image.test.ts",

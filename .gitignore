@@ -13,3 +13,5 @@ coverage
 *.tsbuildinfo
 dist/
 .env*
+packages/ui-message/src/proof-static.png
+apps/api/.vercel/

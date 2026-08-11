@@ -22,4 +22,5 @@ export {
 } from "./sendblue-media";
 
 export { resolveUiMedia, sendUiMessage } from "./render";
-export { generateProofPng } from "./proof-image";
+// proof-image (sharp) is NOT re-exported here — import from
+// `@altered/ui-message/proof-image` only when generating PNGs.

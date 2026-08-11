@@ -22,8 +22,10 @@ await build({
   sourcemap: false,
   dts: false,
   clean: false,
-  // Bundle workspace + deps so Vercel doesn't need to resolve .ts exports
+  // Bundle workspace + deps so Vercel doesn't need to resolve .ts exports.
+  // Do not pull sharp into this graph (native bindings crash the lambda).
   noExternal: [/.*/],
+  external: ["sharp", "@img/*"],
   outExtension: () => ({ js: ".js" }),
   banner: {
     // Some CJS-only deps still use require()
