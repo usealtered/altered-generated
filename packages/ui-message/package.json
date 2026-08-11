@@ -1,0 +1,26 @@
+{
+  "name": "@altered/ui-message",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "tsx --test src/render.test.ts src/proof-image.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo ok",
+    "send-proof": "tsx src/send-proof.ts"
+  },
+  "dependencies": {
+    "@altered/env": "workspace:*",
+    "sharp": "^0.34.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@altered/tsconfig": "workspace:*",
+    "@types/node": "^22.17.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
+  }
+}

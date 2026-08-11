@@ -12,6 +12,7 @@ import {
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
+import { sendImessageMediaDirect } from "./sendblue-send";
 import { decodeSendblueThreadId } from "./thread-id";
 import { createTrace, type TraceContext, traceLog } from "./trace";
 import { shouldSkipHandlerFastAck } from "./webhook-fast-ack";
@@ -24,6 +25,11 @@ export type AlteredChat = Chat;
 type SendblueAdapterLike = {
   sendReadReceipt?: (threadId: string) => Promise<unknown>;
   markRead?: (threadId: string) => Promise<unknown>;
+  sendMediaMessage?: (
+    threadId: string,
+    mediaUrl: string,
+    content?: string,
+  ) => Promise<unknown>;
   encodeThreadId?: (d: {
     fromNumber: string;
     contactNumber?: string;
@@ -206,6 +212,23 @@ export function createAlteredChat() {
     const outbound = createOutboundSession({
       id: thread.id,
       post: (body) => thread.post(body),
+      postMedia: async (mediaUrl, caption) => {
+        if (adapter?.sendMediaMessage) {
+          await adapter.sendMediaMessage(thread.id, mediaUrl, caption ?? "");
+          return;
+        }
+        const from = env.SENDBLUE_FROM_NUMBER;
+        if (!from) throw new Error("SENDBLUE_FROM_NUMBER missing for media send");
+        const res = await sendImessageMediaDirect({
+          contactNumber: phone,
+          fromNumber: from,
+          mediaUrl,
+          caption,
+        });
+        if (!res.ok) {
+          throw new Error(res.error ?? "media send failed");
+        }
+      },
       startTyping: () => thread.startTyping?.() ?? Promise.resolve(),
       sendReadReceipt: () =>
         fireReadReceipt(adapter, thread.id, {

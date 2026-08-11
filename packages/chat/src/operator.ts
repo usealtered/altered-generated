@@ -110,10 +110,10 @@ FORMATTING (hard rules - also enforced by code sanitizer):
 MULTI-SEND FLOW (hard rules):
 - The runtime already sent a fast LLM receipt-ack before you were invoked. Do NOT send another status ack. Never use the canned phrase "Checking that now."
 - Rapid inbound texts may be coalesced into one turn (paragraph-joined). Answer that combined turn ONCE. Do not narrate each line separately or re-answer older superseded turns.
-- Every user-visible reply goes through the send_message tool. Never rely on a final assistant text blob.
-- Flow: run tools as needed, start_typing, then send_message the final answer (split across sends on paragraph breaks when useful).
+- Every user-visible reply goes through send_message and/or send_ui_message. Never rely on a final assistant text blob.
+- Flow: run tools as needed, start_typing, then send_message / send_ui_message the final answer (split across sends on paragraph breaks when useful).
 - Use start_typing shortly before any reply you are about to send if tools just ran or there was a pause.
-- You may send multiple send_message calls in one turn.
+- You may send multiple send_message calls in one turn. Use send_ui_message for image/attachment bubbles (public mediaUrl or proof=true).
 - When finished with all user-visible sends, call the done tool. toolChoice is required - you must use tools every step.
 
 SELF-FIX / DELEGATION (hard rules):
@@ -231,13 +231,23 @@ export async function handleOperatorMessage(input: {
         const called = steps.flatMap((s) =>
           (s.toolCalls ?? []).map((c) => c.toolName),
         );
-        const sent = called.includes("send_message");
+        const sent =
+          called.includes("send_message") || called.includes("send_ui_message");
         const didWork = called.some(
-          (n) => n !== "send_message" && n !== "start_typing" && n !== "done",
+          (n) =>
+            n !== "send_message" &&
+            n !== "send_ui_message" &&
+            n !== "start_typing" &&
+            n !== "done",
         );
         if (didWork && !sent) {
           return {
-            activeTools: ["send_message", "start_typing", "done"],
+            activeTools: [
+              "send_message",
+              "send_ui_message",
+              "start_typing",
+              "done",
+            ],
             toolChoice: "required" as const,
           };
         }

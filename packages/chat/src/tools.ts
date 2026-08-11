@@ -32,6 +32,11 @@ import {
   touchCursorAgentRun,
 } from "./agents";
 import { listDevTasks, upsertDevTask } from "./tasks";
+import {
+  generateProofPng,
+  resolveUiMedia,
+  type UiMessagePayload,
+} from "@altered/ui-message";
 
 function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -163,6 +168,79 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
           return { ok: false, error: "No outbound transport bound" };
         }
         return session.outbound.send(text, kind ?? "reply");
+      },
+    }),
+
+    send_ui_message: tool({
+      description:
+        "Send a rich iMessage image/attachment bubble (not plain text). Provide a public mediaUrl ending with a file extension, OR set proof=true to generate and upload a local proof PNG via Sendblue CDN. Use for charts/cards/images.",
+      inputSchema: z.object({
+        mediaUrl: z
+          .string()
+          .url()
+          .optional()
+          .describe("Public HTTPS URL with file extension (e.g. .png)"),
+        caption: z.string().max(1400).optional(),
+        proof: z
+          .boolean()
+          .optional()
+          .describe("If true, generate + upload a proof PNG via Sendblue"),
+      }),
+      execute: async ({ mediaUrl, caption, proof }) => {
+        if (!session.outbound) {
+          return { ok: false, error: "No outbound transport bound" };
+        }
+        if (!ctx.env.SENDBLUE_API_KEY || !ctx.env.SENDBLUE_API_SECRET) {
+          return { ok: false, error: "SENDBLUE_API_KEY/SECRET missing" };
+        }
+
+        let payload: UiMessagePayload;
+        if (proof) {
+          const img = await generateProofPng({
+            subtitle: "ui-message via operator tool",
+          });
+          payload = {
+            type: "image",
+            source: {
+              kind: "bytes",
+              bytes: img.bytes,
+              filename: img.filename,
+              contentType: img.contentType,
+            },
+            caption,
+          };
+        } else if (mediaUrl) {
+          payload = {
+            type: "image",
+            source: { kind: "url", url: mediaUrl },
+            caption,
+          };
+        } else {
+          return {
+            ok: false,
+            error: "Provide mediaUrl or set proof=true",
+          };
+        }
+
+        const resolved = await resolveUiMedia(payload, {
+          auth: {
+            apiKey: ctx.env.SENDBLUE_API_KEY,
+            apiSecret: ctx.env.SENDBLUE_API_SECRET,
+          },
+        });
+        if (!resolved.ok) {
+          return { ok: false, error: resolved.error };
+        }
+
+        const sent = await session.outbound.sendMedia(
+          resolved.media.mediaUrl,
+          resolved.media.caption,
+        );
+        return {
+          ...sent,
+          hosting: resolved.media.hosting,
+          mediaObjectId: resolved.media.mediaObjectId,
+        };
       },
     }),
 

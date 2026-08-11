@@ -22,6 +22,7 @@ title: Decisions log
 
 ## 2026-08-11
 
+- **ui-message / iMessage images:** Sendblue send-message has no base64/blob body — only `media_url`. Hosting choice: Sendblue multipart `/api/upload-file` (returns CDN URL) for generated/ephemeral images. No Vercel Blob/S3 stood up (none in env; unnecessary given Upload-file). Package `@altered/ui-message` + chat `send_ui_message` / `outbound.sendMedia`.
 - Sendblue webhook must ACK immediately with Chat SDK `waitUntil` + Vercel `waitUntil`; never block the HTTP response on the full LLM turn.
 - Inbound read receipt first; typing indicator immediately before each outbound bubble.
 - Multi-send via `send_message` / `start_typing` tools; tool turns: short status → tools → typing → final.

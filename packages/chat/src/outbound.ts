@@ -13,6 +13,8 @@ import { traceLog } from "./trace";
 export type ThreadTransport = {
   id: string;
   post: (text: string) => Promise<unknown>;
+  /** Send image/file bubble via Sendblue media_url (public URL). */
+  postMedia?: (mediaUrl: string, caption?: string) => Promise<unknown>;
   startTyping?: () => Promise<unknown>;
   sendReadReceipt?: () => Promise<unknown>;
   trace?: TraceContext;
@@ -145,6 +147,44 @@ export function createOutboundSession(transport: ThreadTransport) {
         skipped: partsSent === 0,
         parts: partsSent,
       };
+    },
+    /**
+     * Send a rich media bubble (image/file) via Sendblue media_url.
+     * Takes the reply send lock + typing, same as final text replies.
+     */
+    async sendMedia(mediaUrl: string, caption?: string) {
+      if (!transport.postMedia) {
+        return { ok: false as const, error: "No media transport bound" };
+      }
+      const url = mediaUrl.trim();
+      if (!url) return { ok: false as const, error: "mediaUrl required" };
+      const cleaned = caption ? sanitizeImessageText(caption) : undefined;
+
+      await withThreadSendLock(
+        transport.id,
+        async () => {
+          await typing();
+          const postStarted = Date.now();
+          if (transport.trace) {
+            traceLog(transport.trace, "main_send_start", {
+              kind: "media",
+              chars: cleaned?.length ?? 0,
+            });
+          }
+          await transport.postMedia!(url, cleaned);
+          if (transport.trace) {
+            traceLog(transport.trace, "main_send_done", {
+              kind: "media",
+              postMs: Date.now() - postStarted,
+              chars: cleaned?.length ?? 0,
+            });
+          }
+          if (cleaned) sent.push(cleaned);
+          else sent.push(`[media:${url.slice(0, 64)}]`);
+        },
+        transport.trace,
+      );
+      return { ok: true as const, mediaUrl: url };
     },
     /**
      * Optional short progress ping. Safe under parallel tool execution.

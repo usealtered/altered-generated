@@ -62,4 +62,7 @@ export {
   dispatchWebhookFastAck,
   shouldSkipHandlerFastAck,
 } from "./webhook-fast-ack";
-export { sendImessageDirect } from "./sendblue-send";
+export {
+  sendImessageDirect,
+  sendImessageMediaDirect,
+} from "./sendblue-send";

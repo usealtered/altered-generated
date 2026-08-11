@@ -3,6 +3,7 @@ import {
   sanitizeImessageText,
   truncateForImessage,
 } from "@altered/cursor-bridge";
+import { sendSendblueMedia } from "@altered/ui-message";
 
 const SENDBLUE_SEND_URL = "https://api.sendblue.co/api/send-message";
 
@@ -55,4 +56,39 @@ export async function sendImessageDirect(input: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Direct Sendblue media send (image/file bubble via media_url).
+ * Prefer outbound session sendMedia when inside a Chat SDK turn.
+ */
+export async function sendImessageMediaDirect(input: {
+  contactNumber: string;
+  fromNumber: string;
+  mediaUrl: string;
+  caption?: string;
+}): Promise<{
+  ok: boolean;
+  ms: number;
+  status?: number;
+  error?: string;
+  messageHandle?: string;
+}> {
+  const env = getServerEnv();
+  if (!env.SENDBLUE_API_KEY || !env.SENDBLUE_API_SECRET) {
+    return { ok: false, ms: 0, error: "SENDBLUE_API_KEY/SECRET missing" };
+  }
+  const caption = input.caption
+    ? sanitizeImessageText(input.caption)
+    : undefined;
+  return sendSendblueMedia({
+    auth: {
+      apiKey: env.SENDBLUE_API_KEY,
+      apiSecret: env.SENDBLUE_API_SECRET,
+    },
+    contactNumber: input.contactNumber,
+    fromNumber: input.fromNumber,
+    mediaUrl: input.mediaUrl,
+    content: caption,
+  });
 }

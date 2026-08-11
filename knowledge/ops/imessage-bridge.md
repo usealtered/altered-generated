@@ -39,13 +39,21 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 
 ## Tools
 
-- `send_message` / `start_typing` / `done` (forced tool loop)
+- `send_message` / `send_ui_message` / `start_typing` / `done` (forced tool loop)
 - `get_cursor_status` / `list_cursor_agents`
 - `list_dev_tasks` / `upsert_dev_task`
 - `search_knowledge`
 - `prompt_cursor` / `spawn_cursor_agent` / `set_operating_agent`
 - `save_lead` / `get_metrics` / `get_checkout_link`
 - `save_memory` (key required) / `recall_memories`
+
+## Rich media (ui-message)
+
+- Package: `@altered/ui-message`
+- Sendblue needs a public `media_url` (no raw base64 on send-message).
+- Ephemeral images: multipart `POST /api/upload-file` → CDN `media_url` → `send-message` with `media_url`. No Vercel Blob/S3 required.
+- Outbound: `outbound.sendMedia` → adapter `sendMediaMessage` (or `sendImessageMediaDirect`).
+- Operator tool: `send_ui_message` (`mediaUrl` or `proof=true`).
 
 ## Adapter
 
