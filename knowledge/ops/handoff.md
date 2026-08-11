@@ -21,6 +21,8 @@ See latest `main`. Fast LLM ack + structured traces + main-gen detached + **per-
 
 Per-thread Redis `status-ack:${thread}` SET NX (12s) ate both fast-acks. B looked “blocked on A main-gen” because its only visible send was the detached Sonnet reply. Fix: claim key is `status-ack:${thread}:${messageHandle}`; status posts bypass send lock (`ack_send_*` stages).
 
+Verify ov2-*-1786419164: A+B `skipped:false`; B `ack_send_done` 03:32:49Z while A `main_gen` still running; A `main_send` before B `main_send`.
+
 ## Root cause: 60s read-receipt / first-ack (hard numbers)
 
 Riley confirmed webhook hits us immediately. Logs agree for real messages:
