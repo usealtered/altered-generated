@@ -1,10 +1,15 @@
 import { EarlyAccessForm } from "./form";
 import styles from "./page.module.css";
 
+const HERO_HEADLINE =
+  "Ninety days from now, the feature you've been circling finally ships - because you stopped re-running the same procrastination loop you already solved.";
+
+const HERO_SUBHEAD =
+  "Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.";
+
 export const metadata = {
   title: "ALTERED — $100 founding reservation",
-  description:
-    "Never lose your best thinking again. $100 reservation deposit credits toward the $499 ALTERED program.",
+  description: `${HERO_HEADLINE} $100 reservation deposit credits toward the $499 ALTERED program.`,
 };
 
 export default async function EarlyAccessPage({
@@ -23,22 +28,17 @@ export default async function EarlyAccessPage({
       </header>
 
       <section className={styles.hero}>
-        <p className={styles.kicker}>
-          Always-on iMessage for detail-obsessed founders
-        </p>
+        <p className={styles.kicker}>ALTERED · founding cohort</p>
         <h1 className={styles.mark}>ALTERED</h1>
-        <p className={styles.headline}>Never lose your best thinking again.</p>
-        <p className={styles.lede}>
-          Pressure pivots and redundant thinking kill shipping. ALTERED remembers
-          what you decided and keeps you locked on the goal until it ships.
-          Reserve a founding seat with a $100 deposit - credits toward the $499
-          program (net $399).
-        </p>
+        <p className={styles.headline}>{HERO_HEADLINE}</p>
+        <p className={styles.lede}>{HERO_SUBHEAD}</p>
         <div className={styles.ctaRow}>
           <a className={styles.primary} href="#reserve">
-            Reserve your seat - $100
+            Reserve with $100 deposit
           </a>
-          <span className={styles.price}>Limited founding-cohort seats</span>
+          <span className={styles.price}>
+            Credits toward $499 (net $399) · limited seats
+          </span>
         </div>
         {params.reserved ? (
           <p className={styles.flashOk}>
@@ -54,12 +54,11 @@ export default async function EarlyAccessPage({
 
       <section className={styles.band} id="reserve">
         <div className={styles.bandCopy}>
-          <h2>What you get</h2>
+          <h2>Claim your founding seat</h2>
           <p>
-            $100 reservation deposit credited to the $499 program. Six-month,
-            AI-allowance based, part-service founder customization inside ALTERED.
-            Honest founding-cohort framing - no fake testimonials. Text
-            +13054098546 anytime.
+            $100 program reservation deposit credited to the $499 program (net
+            $399). Six-month, AI-allowance based, part-service founder
+            customization inside ALTERED. Text +13054098546 anytime.
           </p>
         </div>
         <EarlyAccessForm />

@@ -19,8 +19,8 @@ export function renderReserveHtml(opts?: {
       : "";
 
   const cta = hasCheckout
-    ? `<a class="cta" href="${escapeHtml(checkout)}">Reserve your seat - $100</a>`
-    : `<a class="cta" href="#reserve">Join the founding list - $100</a>`;
+    ? `<a class="cta" href="${escapeHtml(checkout)}">Reserve with $100 deposit</a>`
+    : `<a class="cta" href="#reserve">Reserve with $100 deposit</a>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -28,7 +28,7 @@ export function renderReserveHtml(opts?: {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ALTERED — $100 program reservation</title>
-  <meta name="description" content="Never lose your best thinking again. $100 founding reservation deposit credits toward the $499 ALTERED program." />
+  <meta name="description" content="Ninety days from now, the feature you've been circling finally ships. Koa is the always-on iMessage agent for detail-obsessed founders. $100 reservation deposit credits toward $499." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -70,8 +70,8 @@ export function renderReserveHtml(opts?: {
     .kicker { margin: 0 0 .75rem; color: var(--signal); letter-spacing: .16em; text-transform: uppercase; font-size: .72rem; animation: rise .8s .05s ease both; }
     .mark { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(4.2rem, 16vw, 8.5rem); line-height: .88; letter-spacing: -.04em; text-transform: uppercase; animation: rise .9s .1s ease both; }
     .mark:after { content: ""; display: block; margin-top: .55rem; width: min(100%, 16rem); height: 3px; background: linear-gradient(90deg, var(--signal), transparent); }
-    .headline { margin: 1.35rem 0 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(1.35rem, 3.5vw, 2rem); letter-spacing: -.02em; line-height: 1.2; animation: rise .9s .16s ease both; }
-    .lede { margin: 1rem 0 0; color: var(--mist); font-size: clamp(.95rem, 2.2vw, 1.08rem); line-height: 1.55; animation: rise .9s .2s ease both; }
+    .headline { margin: 1.35rem 0 0; max-width: 38rem; font-family: var(--font-display); font-weight: 700; font-size: clamp(1.25rem, 3.2vw, 1.85rem); letter-spacing: -.02em; line-height: 1.25; animation: rise .9s .16s ease both; }
+    .lede { margin: 1rem 0 0; max-width: 34rem; color: var(--mist); font-size: clamp(.95rem, 2.2vw, 1.08rem); line-height: 1.55; animation: rise .9s .2s ease both; }
     .row { margin-top: 2rem; display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.25rem; animation: rise .9s .26s ease both; }
     .cta { display: inline-flex; align-items: center; justify-content: center; padding: .95rem 1.35rem; background: var(--signal); color: var(--ink); font-weight: 500; letter-spacing: .04em; text-transform: uppercase; font-size: .82rem; }
     .cta:hover { background: #c8ff66; }
@@ -105,13 +105,13 @@ export function renderReserveHtml(opts?: {
       <div class="meta">FOUNDING COHORT // $100</div>
     </header>
     <section class="hero">
-      <p class="kicker">Always-on iMessage for detail-obsessed founders</p>
+      <p class="kicker">ALTERED · founding cohort</p>
       <h1 class="mark">ALTERED</h1>
-      <p class="headline">Never lose your best thinking again.</p>
-      <p class="lede">Pressure pivots and redundant thinking kill shipping. ALTERED remembers what you decided and keeps you locked on the goal until it ships. Reserve a founding seat with a $100 deposit - credits toward the $499 program (net $399).</p>
+      <p class="headline">Ninety days from now, the feature you've been circling finally ships - because you stopped re-running the same procrastination loop you already solved.</p>
+      <p class="lede">Koa is the always-on iMessage agent that holds context so detail-obsessed founders stop drifting and actually ship.</p>
       <div class="row">
         ${cta}
-        <span class="price">Limited founding-cohort seats</span>
+        <span class="price">$100 reservation deposit · credits toward $499 (net $399)</span>
       </div>
       ${flash}
     </section>

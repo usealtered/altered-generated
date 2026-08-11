@@ -17,7 +17,7 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "ALTERED — $100 founding reservation",
   description:
-    "Never lose your best thinking again. $100 reservation deposit credits toward the $499 ALTERED program.",
+    "Ninety days from now, the feature you've been circling finally ships. Koa is the always-on iMessage agent for detail-obsessed founders. $100 reservation deposit credits toward $499.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

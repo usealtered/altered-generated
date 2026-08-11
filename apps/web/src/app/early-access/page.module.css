@@ -93,12 +93,12 @@
 
 .headline {
   margin: 1.35rem 0 0;
-  max-width: 36rem;
+  max-width: 38rem;
   font-family: var(--font-display), sans-serif;
   font-weight: 700;
-  font-size: clamp(1.35rem, 3.5vw, 2rem);
+  font-size: clamp(1.25rem, 3.2vw, 1.85rem);
   letter-spacing: -0.02em;
-  line-height: 1.2;
+  line-height: 1.25;
   animation: rise 0.9s 0.16s ease both;
 }
 
