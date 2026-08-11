@@ -14,6 +14,7 @@ import type { OperatorContext } from "./operator-context";
 import { createOpenRouter, chatAgentModelId } from "./model";
 import { computeSplitMetricsToday } from "./metrics";
 import { recordAiEvent } from "./observability";
+import { checkSendblueDeviceHealth } from "./sendblue-health";
 
 function todayKey(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -286,7 +287,10 @@ Plain direct Hormozi tone. No em dashes.`,
 export async function buildOpsDashboard(ctx: OperatorContext) {
   if (!ctx.db) return { ok: false as const, error: "no db" };
   const day = todayKey();
-  const metrics = await computeSplitMetricsToday(ctx.db, day);
+  const [metrics, sendblue] = await Promise.all([
+    computeSplitMetricsToday(ctx.db, day),
+    checkSendblueDeviceHealth(ctx.env, { lookbackMinutes: 90 }),
+  ]);
 
   const dayStart14 = new Date(Date.now() - 14 * 86400000);
   const leadFlow = await ctx.db
@@ -387,5 +391,6 @@ export async function buildOpsDashboard(ctx: OperatorContext) {
     integrityNote: metrics.legacyDailyCounters
       ? "prospectFunnel and internalOps are never summed for funnel decisions."
       : undefined,
+    sendblue,
   };
 }

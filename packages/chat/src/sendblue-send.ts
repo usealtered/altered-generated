@@ -58,6 +58,25 @@ export async function sendImessageDirect(input: {
         error: `HTTP ${res.status} ${body.slice(0, 160)}`,
       };
     }
+    const payload = (await res.json().catch(() => null)) as {
+      status?: string;
+      message_handle?: string;
+      error_message?: string;
+      error_code?: string | number;
+    } | null;
+    if (payload?.status === "ERROR") {
+      console.error("[altered-ops] sendblue send returned ERROR", {
+        messageHandle: payload.message_handle,
+        errorCode: payload.error_code,
+        errorMessage: payload.error_message?.slice(0, 160),
+      });
+      return {
+        ok: false,
+        ms,
+        status: res.status,
+        error: `Sendblue ERROR ${payload.error_code ?? ""} ${payload.error_message?.slice(0, 120) ?? ""}`.trim(),
+      };
+    }
     return { ok: true, ms, status: res.status };
   } catch (err) {
     return {
@@ -118,6 +137,25 @@ export async function sendImessageReplyDirect(input: {
         ms,
         status: res.status,
         error: `HTTP ${res.status} ${body.slice(0, 160)}`,
+      };
+    }
+    const payload = (await res.json().catch(() => null)) as {
+      status?: string;
+      message_handle?: string;
+      error_message?: string;
+      error_code?: string | number;
+    } | null;
+    if (payload?.status === "ERROR") {
+      console.error("[altered-ops] sendblue reply returned ERROR", {
+        messageHandle: payload.message_handle,
+        errorCode: payload.error_code,
+        errorMessage: payload.error_message?.slice(0, 160),
+      });
+      return {
+        ok: false,
+        ms,
+        status: res.status,
+        error: `Sendblue ERROR ${payload.error_code ?? ""} ${payload.error_message?.slice(0, 120) ?? ""}`.trim(),
       };
     }
     return { ok: true, ms, status: res.status };

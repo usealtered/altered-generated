@@ -99,4 +99,13 @@ Riley first bubble clipped as `Who's the target...`. Cause: `truncateForImessage
 ```bash
 npx vercel logs --project api-generated --scope altered --environment production --since 30m --query 'altered-ops:trace' --json
 curl -s https://generated.api.usealtered.com/ops/posts/status
+# Sendblue device health (gated): GET /ops/sendblue-health?key=OPS_DASHBOARD_SECRET
 ```
+
+### Sendblue device outage (2026-08-11 ~18:15Z)
+
+- **Symptom:** Riley not getting iMessage replies; Vercel/webhook path healthy.
+- **Root cause:** Sendblue Mac `Messages.app` not running. Outbound status `ERROR` / code `5504` ("Application isn’t running. (-600)" / send status timeout).
+- **Last DELIVERED:** ~18:04Z. All ops outbound from 18:15–18:27 failed device-side while our API still logged send success (HTTP 200, no outbound status webhook configured).
+- **Fix:** Restart Messages.app (and Sendblue agent if needed) on the Sendblue host Mac. Then text +13054098546 to confirm DELIVERED.
+- **Detection shipped:** `checkSendblueDeviceHealth` on `/ops/posts/status`, `/ops/dashboard`, `/ops/sendblue-health`.

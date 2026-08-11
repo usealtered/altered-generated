@@ -27,6 +27,7 @@ import {
   postingEnabled,
   applyIdeaAction,
   buildOpsDashboard,
+  checkSendblueDeviceHealth,
   runDailyAnalyticsSnapshot,
   runHourlyConversationReview,
   runLeadGenSweep,
@@ -98,6 +99,7 @@ app.get("/", (c) =>
       dashboard: "/ops/dashboard",
       ideaAction: "/ops/posts/idea/:id/action",
       ensureCadence: "/ops/ensure-cadence-schedules",
+      sendblueHealth: "/ops/sendblue-health",
     },
   }),
 );
@@ -498,6 +500,9 @@ app.get("/ops/posts/pending", async (c) => {
 app.get("/ops/posts/status", async (c) => {
   const ctx = createOperatorContext();
   const env = ctx.env;
+  const sendblue = await checkSendblueDeviceHealth(env, {
+    lookbackMinutes: 90,
+  });
   return c.json({
     postingEnabled: postingEnabled(env),
     zernioConfigured: zernioConfigured(env),
@@ -507,12 +512,32 @@ app.get("/ops/posts/status", async (c) => {
     twitterAccountIdSuffix: env.ZERNIO_TWITTER_ACCOUNT_ID
       ? env.ZERNIO_TWITTER_ACCOUNT_ID.slice(-6)
       : null,
+    sendblue,
     schedules: {
       generateCron: "0 14 * * 1,3,5",
       publishCron: "*/15 * * * *",
       note: "POST /ops/posts/ensure-schedules to bootstrap QStash",
     },
   });
+});
+
+app.get("/ops/sendblue-health", async (c) => {
+  if (!verifyOpsDashboard(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const env = getServerEnv();
+  const sendblue = await checkSendblueDeviceHealth(env, {
+    lookbackMinutes: 90,
+  });
+  if (sendblue.deviceDown) {
+    console.error("[altered-ops] sendblue device down", {
+      lastErrorAt: sendblue.lastErrorAt,
+      lastErrorCode: sendblue.lastErrorCode,
+      errorCount: sendblue.errorCount,
+      diagnosis: sendblue.diagnosis,
+    });
+  }
+  return c.json(sendblue);
 });
 
 app.post("/ops/posts/ensure-schedules", async (c) => {

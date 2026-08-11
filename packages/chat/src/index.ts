@@ -72,6 +72,10 @@ export {
   sendImessageReplyDirect,
 } from "./sendblue-send";
 export {
+  checkSendblueDeviceHealth,
+  type SendblueDeviceHealth,
+} from "./sendblue-health";
+export {
   runGenerateTick,
   runPublishTick,
   generatePostIdeas,

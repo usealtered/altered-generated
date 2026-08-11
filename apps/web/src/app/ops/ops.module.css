@@ -64,6 +64,25 @@
   font-size: 0.8rem;
 }
 
+.alert {
+  border: 1px solid #ff8f8f;
+  background: rgba(80, 18, 18, 0.55);
+  color: #ffd5d5;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.alert h2 {
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.1rem;
+  margin: 0 0 0.35rem;
+  color: #ffb4b4;
+}
+
+.alert p {
+  margin: 0.25rem 0;
+}
+
 .stats {
   display: grid;
   grid-template-columns: 1fr 1fr;

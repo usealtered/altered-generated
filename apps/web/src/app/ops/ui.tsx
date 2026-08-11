@@ -51,6 +51,17 @@ type Dashboard = {
     cta?: string | null;
     status: string;
   }>;
+  sendblue?: {
+    ok: boolean;
+    deviceDown: boolean;
+    errorCount: number;
+    deliveredOrSentCount: number;
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastErrorCode: string | number | null;
+    lastErrorMessage: string | null;
+    diagnosis: string | null;
+  };
 };
 
 export function OpsDashboardClient(props: {
@@ -103,6 +114,21 @@ export function OpsDashboardClient(props: {
           Refresh
         </button>
       </header>
+
+      {data.sendblue?.deviceDown ? (
+        <section className={styles.alert}>
+          <h2>Sendblue device down</h2>
+          <p>
+            {data.sendblue.diagnosis ??
+              "Outbound iMessage delivery failing. Restart Messages.app on the Sendblue Mac."}
+          </p>
+          <p className={styles.hint}>
+            Errors: {data.sendblue.errorCount} · last error{" "}
+            {data.sendblue.lastErrorAt ?? "—"} · code{" "}
+            {data.sendblue.lastErrorCode ?? "—"}
+          </p>
+        </section>
+      ) : null}
 
       <section className={styles.grid2}>
         <div className={styles.panel}>
