@@ -82,9 +82,8 @@ Key fields: `webhookAgeMs`, `apiMs` (receipt), `sinceWebhookMs` (handler_start â
 ## Still open
 
 1. Lock deposit amount + `PRIMARY_CHECKOUT_URL`.
-2. Optional live smoke: rapid double-text while Sonnet running â†’ second `sinceWebhookMs` should stay low + fast-ack ~2s.
-3. Main-turn Sonnet latency (now non-blocking for next inbound).
-4. Optional features: QStash wake-ups, follow-up questions, PNG cards.
+2. Main-turn Sonnet latency (now non-blocking for next inbound ack).
+3. Optional features: QStash wake-ups, follow-up questions, PNG cards.
 
 ## Domains / numbers
 
