@@ -43,6 +43,11 @@ See latest `main`.
 1. Stripe Payment Link ($100) → set `PRIMARY_CHECKOUT_URL` on api-generated
 2. Optional: deploy `apps/web` to `generated.usealtered.com`
 
+### Koa landing copy (sales-funnel-build)
+
+- 3x 90-day win hero candidates extracted from `usealtered/altered` (read-only) → `knowledge/sales/koa-90-day-win-candidates.md`
+- Awaiting Riley pick before locking landing hero promise
+
 
 ### Truncation self-fix (b2e3499)
 

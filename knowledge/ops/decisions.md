@@ -31,6 +31,7 @@ title: Decisions log
 - Dual-mode iMessage: allowlisted phones → ops copilot; everyone else → sales funnel (`packages/chat/src/sales.ts`).
 - Interim money page: `GET /reserve` on api-generated until `generated.usealtered.com` web deploy exists.
 - Outbound templates in `sales/outbound-templates.md` (manual; social APIs blocked on keys).
+- **Koa 90-day win candidates** (read-only from `usealtered/altered` OFFER.md + S2/S25/S35/S41): see `sales/koa-90-day-win-candidates.md`. Pending Riley pick for landing hero.
 
 ## 2026-08-11
 
