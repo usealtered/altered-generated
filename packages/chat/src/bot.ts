@@ -207,6 +207,7 @@ export function createAlteredChat() {
           source: "outbound_session",
         }),
       trace,
+      messageHandle,
     });
 
     // Backup receipt (webhook_early is primary). Fire-and-forget.
@@ -225,14 +226,8 @@ export function createAlteredChat() {
     });
 
     const sendStarted = Date.now();
-    traceLog(trace, "status_send_start", {});
     const sent = await outbound.send(ack.text, "status");
     const sendMs = Date.now() - sendStarted;
-    traceLog(trace, "status_send_done", {
-      sendMs,
-      skipped: Boolean(sent.skipped),
-      parts: sent.parts,
-    });
     console.info("[altered-ops] fast ack sent", {
       phone,
       threadId: thread.id,

@@ -16,6 +16,8 @@ export type ThreadTransport = {
   startTyping?: () => Promise<unknown>;
   sendReadReceipt?: () => Promise<unknown>;
   trace?: TraceContext;
+  /** Sendblue message_handle for this inbound turn (status-ack dedupe key). */
+  messageHandle?: string;
 };
 
 export type SendKind = "status" | "reply";
@@ -24,8 +26,11 @@ export type SendKind = "status" | "reply";
  * Multi-send iMessage session: typing before each outbound, optional status ping
  * before slow tool work, paragraph-aware splitting, code-level sanitizer.
  *
- * Status bubbles are Redis-claimed per thread so overlapping turns / isolates
- * cannot spam duplicate acks. There is no canned deterministic ack phrase.
+ * Status/fast-ack bubbles:
+ * - Dedupe per inbound message_handle only (never per-thread).
+ * - Bypass the Redis/in-process send lock so they never wait on main-gen sends.
+ *
+ * Reply bubbles still take the send lock so A/B final replies stay ordered.
  */
 export function createOutboundSession(transport: ThreadTransport) {
   const sent: string[] = [];
@@ -39,13 +44,40 @@ export function createOutboundSession(transport: ThreadTransport) {
     await typingGate;
   }
 
+  async function postPart(part: string, kind: SendKind) {
+    const postStarted = Date.now();
+    const stageStart = kind === "status" ? "ack_send_start" : "main_send_start";
+    const stageDone = kind === "status" ? "ack_send_done" : "main_send_done";
+    if (transport.trace) {
+      traceLog(transport.trace, stageStart as "ack_send_start" | "main_send_start", {
+        kind,
+        chars: part.length,
+      });
+    }
+    await transport.post(part);
+    if (transport.trace) {
+      traceLog(transport.trace, stageDone as "ack_send_done" | "main_send_done", {
+        kind,
+        postMs: Date.now() - postStarted,
+        chars: part.length,
+      });
+    }
+    sent.push(part);
+    if (kind === "status") statusSent = true;
+  }
+
   async function sendRaw(text: string, kind: SendKind) {
     const cleaned = sanitizeImessageText(text);
     if (!cleaned) return;
 
     if (kind === "status") {
-      // Cross-isolate / cross-turn dedupe for status pings.
-      const claimed = await claimThreadStatusAck(transport.id);
+      // Same-turn guard.
+      if (statusSent) return;
+      // Per-messageHandle only — never block overlap-B because A acked.
+      const claimed = await claimThreadStatusAck(
+        transport.id,
+        transport.messageHandle ?? transport.trace?.messageHandle,
+      );
       if (!claimed) return;
     }
 
@@ -54,30 +86,26 @@ export function createOutboundSession(transport: ThreadTransport) {
         ? [truncateForImessage(cleaned, 80)]
         : splitImessageParts(cleaned);
 
-    await withThreadSendLock(transport.id, async () => {
+    if (kind === "status") {
+      // CRITICAL: do not take send lock. Main-gen replies must never delay acks.
       for (const part of parts) {
         if (!part.trim()) continue;
-        // Status acks must be near-instant: skip typing API round-trip.
-        if (kind !== "status") await typing();
-        const postStarted = Date.now();
-        if (transport.trace && kind !== "status") {
-          traceLog(transport.trace, "outbound_send_start", {
-            kind,
-            chars: part.length,
-          });
-        }
-        await transport.post(part);
-        if (transport.trace && kind !== "status") {
-          traceLog(transport.trace, "outbound_send_done", {
-            kind,
-            postMs: Date.now() - postStarted,
-            chars: part.length,
-          });
-        }
-        sent.push(part);
-        if (kind === "status") statusSent = true;
+        await postPart(part, "status");
       }
-    }, transport.trace);
+      return;
+    }
+
+    await withThreadSendLock(
+      transport.id,
+      async () => {
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          await typing();
+          await postPart(part, "reply");
+        }
+      },
+      transport.trace,
+    );
   }
 
   return {
@@ -98,8 +126,19 @@ export function createOutboundSession(transport: ThreadTransport) {
     },
     async send(text: string, kind: SendKind = "reply") {
       const before = sent.length;
+      const started = Date.now();
+      if (transport.trace && kind === "status") {
+        traceLog(transport.trace, "status_send_start", {});
+      }
       await sendRaw(text, kind);
       const partsSent = sent.length - before;
+      if (transport.trace && kind === "status") {
+        traceLog(transport.trace, "status_send_done", {
+          sendMs: Date.now() - started,
+          skipped: partsSent === 0,
+          parts: partsSent,
+        });
+      }
       return {
         ok: true as const,
         kind,
@@ -110,7 +149,6 @@ export function createOutboundSession(transport: ThreadTransport) {
     /**
      * Optional short progress ping. Safe under parallel tool execution.
      * Prefer fast-ack / model-authored status; this is a helper only.
-     * Duplicate status claims within the Redis TTL are skipped.
      */
     async ensureStatus(fallback = "On it.") {
       if (statusInFlight) {
@@ -129,14 +167,9 @@ export function createOutboundSession(transport: ThreadTransport) {
         statusInFlight = null;
       }
       const didSend = sent.length > before;
-      // Mark handled even when Redis claim skips - do not retry this turn.
       statusSent = true;
       return { skipped: !didSend };
     },
-    /**
-     * Leftover model text should rarely be used - preferred path is send_message tool.
-     * Still sanitized if invoked.
-     */
     async flushText(text: string) {
       const trimmed = sanitizeImessageText(text ?? "");
       if (!trimmed) return { sent: 0 };

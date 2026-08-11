@@ -4,11 +4,22 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (detach main-gen from inbound lock).
+Last updated: 2026-08-11 (fast-ack no longer blocked by status-ack dedupe / send lock).
 
 ## HEAD on main
 
-See latest `main`. Fast LLM ack + structured traces + **main Sonnet detached from Chat SDK inbound lock**.
+See latest `main`. Fast LLM ack + structured traces + main-gen detached + **per-messageHandle status claim** (acks bypass send lock).
+
+### Overlap 1786418774 root cause
+
+`overlap-a` + `overlap-b` at 03:26:14Z:
+
+| cid | status_send_done | First visible bubble |
+|---|---|---|
+| overlap-a | **skipped:true parts:0** (67ms) | main reply ~03:26:19 |
+| overlap-b | **skipped:true parts:0** (67ms) | main reply ~03:26:42 |
+
+Per-thread Redis `status-ack:${thread}` SET NX (12s) ate both fast-acks. B looked “blocked on A main-gen” because its only visible send was the detached Sonnet reply. Fix: claim key is `status-ack:${thread}:${messageHandle}`; status posts bypass send lock (`ack_send_*` stages).
 
 ## Root cause: 60s read-receipt / first-ack (hard numbers)
 

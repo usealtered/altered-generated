@@ -19,8 +19,12 @@ const gates = new Map<string, Promise<unknown>>();
 
 const LOCK_TTL_SEC = 45;
 const LOCK_WAIT_MS = 40_000;
-/** Suppress duplicate kind=status bubbles on the same thread (short window). */
-export const STATUS_ACK_TTL_SEC = 12;
+/**
+ * Dedupe window for status acks for the SAME inbound message_handle only.
+ * Must NOT be per-thread: that silently dropped overlap-B fast-acks while A
+ * (or a prior turn) still held status-ack:* (see cid overlap-*-1786418774).
+ */
+export const STATUS_ACK_TTL_SEC = 120;
 
 let redisSingleton: Redis | null | undefined;
 let memoryOnly = false;
@@ -63,8 +67,8 @@ function sendLockKey(threadKey: string) {
   return `send-lock:${threadKey}`;
 }
 
-function statusAckKey(threadKey: string) {
-  return `status-ack:${threadKey}`;
+function statusAckKey(threadKey: string, messageHandle: string) {
+  return `status-ack:${threadKey}:${messageHandle}`;
 }
 
 async function acquireRedisLock(
@@ -113,17 +117,20 @@ async function withInProcessLock<T>(
 }
 
 /**
- * Claim the right to send one short status bubble on this thread.
- * Returns false if a status was already claimed within STATUS_ACK_TTL_SEC.
+ * Claim the right to send one status bubble for a specific inbound message.
+ * Different message_handles on the same thread must NOT block each other.
+ * Returns true when there is no messageHandle (caller should rely on in-turn flags).
  */
 export async function claimThreadStatusAck(
   threadKey: string,
+  messageHandle?: string | null,
   ttlSec: number = STATUS_ACK_TTL_SEC,
 ): Promise<boolean> {
+  if (!messageHandle) return true;
   const redis = getRedis();
   if (!redis) return true;
   try {
-    const ok = await redis.set(statusAckKey(threadKey), "1", {
+    const ok = await redis.set(statusAckKey(threadKey, messageHandle), "1", {
       nx: true,
       ex: ttlSec,
     });
@@ -131,6 +138,7 @@ export async function claimThreadStatusAck(
   } catch (err) {
     console.warn("[altered-ops] status ack claim failed", {
       threadKey,
+      messageHandle,
       error: err instanceof Error ? err.message : String(err),
     });
     return true;

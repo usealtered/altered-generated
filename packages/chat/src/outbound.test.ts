@@ -126,4 +126,35 @@ describe("createOutboundSession", () => {
     assert.equal(posts.length, 1);
     assert.equal(posts[0], "Ok.\n\nDone.");
   });
+
+  it("status ack does not wait on an in-flight reply send lock", async () => {
+    const events: string[] = [];
+    let releaseReply!: () => void;
+    const replyGate = new Promise<void>((r) => {
+      releaseReply = r;
+    });
+
+    const session = createOutboundSession({
+      id: "t-overlap",
+      post: async (text) => {
+        events.push(`post:${text}`);
+        if (text.startsWith("REPLY")) await replyGate;
+      },
+    });
+
+    const replyP = session.send("REPLY held for a while.", "reply");
+    await new Promise((r) => setTimeout(r, 5));
+    const statusP = session.send("Ack now.", "status");
+    // Status must complete while reply post is still gated.
+    const statusResult = await statusP;
+    assert.equal(statusResult.skipped, false);
+    assert.ok(events.includes("post:Ack now."));
+    assert.equal(events[0], "post:REPLY held for a while.");
+    releaseReply();
+    await replyP;
+    assert.deepEqual(events, [
+      "post:REPLY held for a while.",
+      "post:Ack now.",
+    ]);
+  });
 });

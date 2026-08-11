@@ -32,7 +32,8 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 | Our webhook | Await direct mark-read (≤2s) + `waitUntil` before/around init | Receipt completes in-request; `webhookAgeMs` + `apiMs` traced |
 | Handler | `sinceWebhookMs` from Redis `trace:wh:*` | Measures queue/lock delay webhook→handler_start |
 | Our outbound | `withThreadSendLock(threadId)` in-process + Redis `send-lock:*` | Serializes `thread.post` and completion `sdk.messages.send` on the same canonical thread id |
-| Status pings | Redis `status-ack:*` SET NX (~12s) + fast LLM ack | At most one status bubble per thread per short window |
+| Status / fast-ack | Per-`message_handle` Redis claim + **no send lock** | Each inbound gets its own ack; never waits on main-gen sends |
+| Reply sends | Redis/in-process `send-lock:*` | Serializes final replies only (ordering / rate) |
 | Cursor completions | Redis list + token debounce + `notify:drain:*` lock + QStash flush | Near-simultaneous finishes merge into one summarized iMessage |
 
 ## Tools
