@@ -4,11 +4,19 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (concurrency locks + fast LLM ack merge).
+Last updated: 2026-08-11 (concurrency locks + fast LLM ack; prod timing verified).
 
 ## HEAD on main
 
 See latest `main`. Fast LLM first bubble (`generateFastAck`) plus Redis cross-isolate outbound locks / notify drain.
+
+### Timing (prod probe 2026-08-11, deploy after `63c5930`)
+
+| Era | First bubble |
+|---|---|
+| Before (full Sonnet tool loop) | `ai_events.ops_imessage` **12s–111s** (Riley ~40s) |
+| Hardcoded ack (`135d029`) | status send **~310ms** after 700ms burst debounce (rejected) |
+| After fast LLM ack (`63c5930`) | **handlerMs=1725** (genMs=1265, sendMs=455); webhook 200 in 283ms; no burst debounce; `ops_imessage_ack` ok |
 
 ## Already shipped (do not redo)
 
@@ -31,10 +39,10 @@ Hard: never send canned "Checking that now." Deterministic acks banned.
 ## Still open
 
 1. Lock deposit amount + `PRIMARY_CHECKOUT_URL`.
-2. Confirm post-deploy first-bubble `handlerMs` stays under 3s (`[altered-ops] fast ack sent`).
-3. Optional live smoke: rapid double-text + two Cursor finishes → one merged notice; no duplicate status.
-4. Main-turn Sonnet latency still often 10s+ — optimize only if Riley prioritizes.
-5. Post-test scale items in `memory-and-metrics.md`.
+2. Optional live smoke: rapid double-text + two Cursor finishes → one merged notice; no duplicate status.
+3. Main-turn Sonnet latency still often 10s+ — optimize only if Riley prioritizes.
+4. Post-test scale items in `memory-and-metrics.md`.
+5. Optional open features: QStash wake-ups, coding-agent follow-up questions, PNG status cards.
 
 ## First moves in a new chat
 
