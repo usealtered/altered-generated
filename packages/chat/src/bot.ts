@@ -9,7 +9,6 @@ import {
   MAIN_GEN_COALESCE_MS,
   scheduleCoalescedMainGen,
 } from "./main-gen-coalesce";
-import { isCurrentMainGen } from "./main-gen-gate";
 import { createOutboundSession } from "./outbound";
 import { createOperatorContext, handleOperatorMessage } from "./operator";
 import { sendMarkReadDirect } from "./read-receipt";
@@ -271,7 +270,7 @@ export function createAlteredChat() {
     // Detach Sonnet so the Chat SDK burst lock releases after fast-ack.
     // Coalesce across handlers: follow-ups during the quiet window (or while
     // a prior Sonnet is still running) merge into ONE main-gen with full text.
-    const scheduled = scheduleCoalescedMainGen({
+    const scheduled = await scheduleCoalescedMainGen({
       threadId: thread.id,
       text,
       trace,
@@ -310,7 +309,7 @@ export function createAlteredChat() {
             trace,
             abortSignal: signal,
           });
-          if (signal.aborted || !isCurrentMainGen(thread.id, generation)) {
+          if (signal.aborted) {
             traceLog(trace, "main_gen_aborted", {
               generation,
               reason: "stale_after_complete",
@@ -336,7 +335,7 @@ export function createAlteredChat() {
             partCount,
           });
         } catch (err) {
-          if (signal.aborted || !isCurrentMainGen(thread.id, generation)) {
+          if (signal.aborted) {
             traceLog(trace, "main_gen_aborted", {
               generation,
               reason: "abort_signal",

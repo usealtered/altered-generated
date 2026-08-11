@@ -5,17 +5,15 @@ import {
   resetMainGenCoalesceForTests,
   scheduleCoalescedMainGen,
 } from "./main-gen-coalesce";
-import { resetMainGenGatesForTests } from "./main-gen-gate";
 
 describe("main-gen-coalesce", () => {
   beforeEach(() => {
     resetMainGenCoalesceForTests();
-    resetMainGenGatesForTests();
   });
 
   it("merges rapid texts into one flush after the quiet window", async () => {
     const flushes: string[] = [];
-    const a = scheduleCoalescedMainGen({
+    const a = await scheduleCoalescedMainGen({
       threadId: "t1",
       text: "Maybe it was fixed",
       debounceMs: 40,
@@ -25,7 +23,7 @@ describe("main-gen-coalesce", () => {
     });
     assert.equal(a.partCount, 1);
 
-    const b = scheduleCoalescedMainGen({
+    const b = await scheduleCoalescedMainGen({
       threadId: "t1",
       text: "Well this block",
       debounceMs: 40,
@@ -35,7 +33,7 @@ describe("main-gen-coalesce", () => {
     });
     assert.equal(b.partCount, 2);
 
-    const c = scheduleCoalescedMainGen({
+    const c = await scheduleCoalescedMainGen({
       threadId: "t1",
       text: "Is the concurrency issue",
       debounceMs: 40,
@@ -63,7 +61,7 @@ describe("main-gen-coalesce", () => {
     });
     const flushes: string[] = [];
 
-    const a = scheduleCoalescedMainGen({
+    const a = await scheduleCoalescedMainGen({
       threadId: "t2",
       text: "first",
       debounceMs: 20,
@@ -81,7 +79,7 @@ describe("main-gen-coalesce", () => {
     });
 
     await firstStarted;
-    const b = scheduleCoalescedMainGen({
+    const b = await scheduleCoalescedMainGen({
       threadId: "t2",
       text: "second",
       debounceMs: 20,

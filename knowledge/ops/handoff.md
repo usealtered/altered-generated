@@ -23,7 +23,7 @@ Riley: "Maybe it was fixed…" → "Well this block" → "Is the concurrency iss
 
 Four full sequential turns. Root cause: **not** send-side `send-lock`. Chat SDK inbound lock / missing cross-handler coalesce. At the time: `queue` (or later `burst`+detach) released after fast-ack so each text got its own Sonnet. Separate from Redis drain used for Cursor completion notices.
 
-**Fix path:** `concurrency.burst debounceMs=1500` + `MAIN_GEN_COALESCE_MS=2000` (`main-gen-coalesce.ts`). Expect one `main_gen_coalesce_flush` with `partCount≥N` for an N-message quiet-window burst.
+**Fix path:** `concurrency.burst debounceMs=1500` + Redis-backed `scheduleCoalescedMainGen` (`MAIN_GEN_COALESCE_MS=2000`, keys `mgc:parts|epoch|gen|inflight:*`). Expect one `main_gen_coalesce_flush` with `partCount≥N` for an N-message quiet-window burst. Mid-Sonnet follow-ups abort via Redis gen poll and re-merge inflight texts.
 
 ### OV2-B 1786419164 (before — bug)
 

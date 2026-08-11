@@ -52,11 +52,6 @@ export {
   scheduleCoalescedMainGen,
 } from "./main-gen-coalesce";
 export {
-  beginMainGen,
-  abortMainGenIfRunning,
-  isCurrentMainGen,
-} from "./main-gen-gate";
-export {
   rememberWebhookReceivedAt,
   lookupWebhookReceivedAt,
   markWebhookAckClaimed,

@@ -28,7 +28,7 @@ Natural-language operator surface. No slash commands - AI SDK tool calling with 
 | Layer | Mechanism | Behavior |
 |---|---|---|
 | Chat SDK inbound | `burst` + `debounceMs: 1500` + Redis state locks | First-pass coalesce; lock held through burst window + fast-ack only |
-| Main gen | Cross-handler coalesce (`MAIN_GEN_COALESCE_MS=2000`) + AbortController | Quiet window merges texts; mid-Sonnet follow-up aborts + re-flush with full context |
+| Main gen | Redis `mgc:*` coalesce (`MAIN_GEN_COALESCE_MS=2000`) + abort poll | Quiet window merges texts across isolates; mid-Sonnet follow-up aborts + re-flush with full context |
 | Sendblue adapter (`#integration` fork) | `sendReadReceipts: false` (we own mark-read) | Chat SDK locks still serialize inbound handlers |
 | Our webhook | Await direct mark-read (≤2s) + `waitUntil` before/around init | Receipt completes in-request; `webhookAgeMs` + `apiMs` traced |
 | Handler | `sinceWebhookMs` from Redis `trace:wh:*` | Measures queue/lock delay webhook→handler_start |
