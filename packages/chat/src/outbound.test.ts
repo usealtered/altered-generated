@@ -50,6 +50,44 @@ describe("createOutboundSession", () => {
     assert.equal(session.statusSent, true);
   });
 
+  it("ensureStatus is safe when tools race in parallel", async () => {
+    const posts: string[] = [];
+    let resolveFirstPost!: () => void;
+    const firstPostGate = new Promise<void>((r) => {
+      resolveFirstPost = r;
+    });
+    let postsStarted = 0;
+    let secondResolvedEarly = false;
+
+    const session = createOutboundSession({
+      id: "t2b",
+      post: async (text) => {
+        postsStarted += 1;
+        if (postsStarted === 1) await firstPostGate;
+        posts.push(text);
+      },
+    });
+
+    const a = session.ensureStatus("Checking that now.");
+    // Yield so first caller claims + starts the in-flight send.
+    await new Promise((r) => setTimeout(r, 0));
+    const b = session.ensureStatus("Checking that now.").then((result) => {
+      // Must not resolve before the shared status post finishes.
+      if (posts.length === 0) secondResolvedEarly = true;
+      return result;
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    resolveFirstPost();
+    const results = await Promise.all([a, b]);
+
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0], "Checking that now.");
+    assert.equal(session.statusSent, true);
+    assert.equal(secondResolvedEarly, false);
+    assert.equal(results[0]?.skipped, false);
+    assert.equal(results[1]?.skipped, true);
+  });
+
   it("preserves paragraph breaks inside a single short multi-line bubble", async () => {
     const posts: string[] = [];
     const session = createOutboundSession({

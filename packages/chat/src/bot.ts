@@ -107,7 +107,17 @@ export function createAlteredChat() {
     };
 
     // Read receipt first, before any LLM / tool work.
-    await sendReadReceipt().catch(() => undefined);
+    await sendReadReceipt()
+      .then(() => {
+        console.info("[altered-ops] read receipt sent", { phone, threadId: thread.id });
+      })
+      .catch((err) => {
+        console.warn("[altered-ops] read receipt failed", {
+          phone,
+          threadId: thread.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     await thread.subscribe();
 
     const outbound = createOutboundSession({

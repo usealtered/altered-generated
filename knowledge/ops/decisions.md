@@ -28,3 +28,4 @@ title: Decisions log
 - Preserve `\n\n` in outbound text (do not collapse whitespace to a single line); split substantial paragraphs into separate bubbles.
 - System prompt: plain text only, no em dashes, serious/brutalist/Hormozi-direct tone.
 - Sendblue adapter: private fork `inducingchaos/chat-adapter-sendblue#integration` with `sendReadReceipts: true`.
+- `ensureStatus` must be concurrency-safe: AI SDK can run tools in parallel and previously double-sent the status bubble.

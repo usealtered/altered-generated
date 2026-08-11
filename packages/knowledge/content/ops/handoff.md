@@ -4,11 +4,11 @@ title: Handoff for next Cloud Agent chat
 
 # Handoff - restart without loss
 
-Last updated: 2026-08-11 (iMessage runtime latency/formatting fix shipped; chat archiving).
+Last updated: 2026-08-11 (production log/DB audit of iMessage runtime; ensureStatus race fix).
 
 ## HEAD on main
 
-`cc6ea04` - `fix(imessage): non-blocking Sendblue webhook + multi-send formatting`
+See latest `main` - runtime fix `cc6ea04` plus follow-up `fix(imessage): serialize ensureStatus under parallel tools`.
 
 ## Already shipped (do not redo)
 
@@ -25,26 +25,49 @@ Last updated: 2026-08-11 (iMessage runtime latency/formatting fix shipped; chat 
   - Tools: `send_message` / `start_typing`; tool turns auto-status then work then final.
   - `truncateForImessage` preserves `\n\n`; `splitImessageParts` for multi-bubble.
   - System prompt: plain text, no em dashes, serious/brutalist/Hormozi tone.
+  - `ensureStatus` is concurrency-safe (parallel tool calls no longer double-send "Checking that now.").
 - Docs: `knowledge/ops/imessage-bridge.md`, `decisions.md` (2026-08-11), `memory-and-metrics.md`.
+
+## Production verification (2026-08-11)
+
+### Deploy map
+- `dpl_ATgZT7w7tm33XJbbouzfD2G3RmvQ` = `94f6dbb` (**blocking** await-handlers era)
+- `dpl_J3X23ewVFG4iaVtHpM4KrQRi368N` = `cc6ea04` (waitUntil fix)
+- Current prod alias was on later `main` docs commit that still includes waitUntil path
+
+### Log trace (Sendblue webhook)
+| Time (UTC) | Deploy | Event | HTTP duration |
+|---|---|---|---|
+| 00:19:27 | ATgZT7w (blocking) | inbound "Hello..." → reply posted → 200 | **9s** |
+| 00:20:41 | ATgZT7w | inbound tools Q → reply posted → 200 | **12s** |
+| 00:51:54 | ATgZT7w | inbound change list → reply posted → 200 | **62s** |
+| 01:06:12 | F2jpKw (waitUntil) | webhook received → **200** → then inbound/LLM/`turn complete sends:7` | **326ms** ACK |
+| 01:11:02 | F2jpKw | warm → **200** then background turn `sends:7` | **5ms** ACK |
+
+Confirmed: waitUntil works. Background turn continues after ACK. Multi-send works (`sends:7`). Paragraph `\n\n` preserved in latest outbound DB row. Tool flow includes `send_message` + `start_typing`. Read receipts via fork `sendReadReceipts: true` + explicit handler send (now logged).
+
+### DB audit
+- Tables OK; migrations through `0003_observability`.
+- Cleaned: stale open task `1366f155` → `done`; mangled title task `38e02c4b` retitled.
+- Cancelled prior-agent tasks remain cancelled with notes.
+- Soft-default `settings.active_agent_id` = current runtime agent.
+- Pre-fix outbound rows (00:19/00:20) still have em dashes/markdown - historical only.
 
 ## Prefs
 
 `knowledge/ops/preferences.md` + `AGENTS.md`: ship to **main**; Vercel token **only** `api-generated`; ask in chat/iMessage.
 
-## Still open / verify next
+## Still open
 
-1. **Smoke-test iMessage** after Vercel redeploys `cc6ea04`: immediate ACK, read receipt, typing before replies, multi-send, paragraph breaks.
-2. Pull Vercel logs for recent `api-generated` deploy (needs `VERCEL_TOKEN` - last hour of `dpl_ATgZT7w...` was requested but unavailable in prior chat).
-3. Neon audit of `messages`, `ai_events`, `cursor_agents`, `dev_tasks`, `settings` (needs working `DATABASE_URL`; `SHARED_STORAGE_DATABASE_URL` auth failed in prior pod).
-4. Lock deposit amount + `PRIMARY_CHECKOUT_URL`.
-5. Post-test scale: invoice-accurate costs, FTS recall, sales surface split - see `memory-and-metrics.md`.
+1. Lock deposit amount + `PRIMARY_CHECKOUT_URL`.
+2. Post-test scale: invoice-accurate costs, FTS recall, sales surface split - see `memory-and-metrics.md`.
+3. Optional: after ensureStatus fix deploys, smoke one more iMessage turn and confirm single status bubble + `read receipt sent` log line.
 
 ## First moves in a new chat
 
-1. Read this + `preferences.md` + `imessage-bridge.md` + `memory-and-metrics.md`.
-2. Confirm Vercel deployed `cc6ea04` (or later) on `api-generated`.
-3. If Riley reports iMessage issues: check webhook `waitUntil` path in `apps/api/src/app.ts`, outbound session in `packages/chat/src/outbound.ts`, truncate/split in `packages/cursor-bridge/src/client.ts`.
-4. `pnpm db:migrate` if needed; continue shipping to `main`.
+1. Read this + `preferences.md` + `imessage-bridge.md`.
+2. Confirm latest `main` is Ready on `api-generated`.
+3. If Riley reports iMessage issues: `apps/api/src/app.ts` waitUntil, `packages/chat/src/outbound.ts`, truncate/split in `packages/cursor-bridge/src/client.ts`.
 
 ## Domains / numbers
 

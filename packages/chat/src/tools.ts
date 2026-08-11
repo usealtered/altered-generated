@@ -278,10 +278,14 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
 
     upsert_dev_task: tool({
       description:
-        "Create or update a development task in the DB. Use for open loops / multi-step workstreams.",
+        "Create or update a development task in the DB. Use for open loops / multi-step workstreams. Title must be a short human label (max ~120 chars), never paste the full prompt.",
       inputSchema: z.object({
         id: z.string().uuid().optional(),
-        title: z.string().min(1),
+        title: z
+          .string()
+          .min(1)
+          .max(160)
+          .describe("Short task title only. Do not paste full prompts."),
         description: z.string().optional(),
         status: z
           .enum(["open", "in_progress", "blocked", "done", "cancelled"])
@@ -296,6 +300,7 @@ export function createOperatorTools(ctx: OperatorContext, session: SessionRefs) 
         const workstream = slugifyWorkstream(input.workstream ?? "general");
         const row = await upsertDevTask(ctx, {
           ...input,
+          title: collapseWhitespace(input.title).slice(0, 120),
           workstream,
           source: "imessage",
         });

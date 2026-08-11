@@ -18,4 +18,4 @@ Append-only notes from iMessage `remember` commands and operator decisions.
 
 - Shipped iMessage runtime fix to main (`cc6ea04`): non-blocking webhook `waitUntil`, Sendblue fork + read receipts, typing-before-send, multi-send tools, preserve `\n\n` / split paragraphs, no-em-dash plain-text system prompt.
 - Do not re-block the webhook by awaiting full LLM before HTTP 200 (that was briefly on main and wrong for latency).
-- Archive-ready: see `knowledge/ops/handoff.md`. Open: live smoke-test + Vercel log pull + Neon audit once secrets available.
+- Production audit confirmed waitUntil (ACK 5-326ms vs prior 9-62s). Fixed parallel `ensureStatus` double-send. Cleaned stale `dev_tasks`. See `handoff.md`.
