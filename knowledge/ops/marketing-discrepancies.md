@@ -33,12 +33,20 @@ This file logs deliberate overrides of conclusions from `usealtered/altered` (`.
 | **This repo earlier draft** | Series A–C B2B teams / knowledge ops (generic SaaS ICP). |
 | **Resolution** | Prefer altered ICP for sales copy. Drop generic "teams drowning in Slack+Notion" as the hero promise. Mechanism: always-on iMessage agent / memory / alignment — not "another knowledge base." |
 
+## D4 — Channel: close in iMessage (aligned)
+
+Altered S8: move to iMessage ASAP; payment links in iMessage. This repo's operator line `+13054098546` is the sales bus — keep that.
+
 ## D5 — Outbound posting via Zernio + HITL (2026-08-11)
 
 | | |
 |---|---|
 | **Prior state** | `sales/outbound-templates.md` manual-only; social APIs blocked on keys. |
-| **This repo** | Full HITL-minimal pipeline: generate → iMessage one-tap approve → Zernio publish → log. QStash + Vercel Cron. |
+| **This repo** | Full HITL-minimal pipeline: generate → iMessage one-tap approve → Zernio publish → log. QStash schedules. |
 | **Integration** | [Zernio](https://docs.zernio.com/) social posting API (`POST /api/v1/posts`). Not Buffer/Typefully. |
 | **Blocked until** | Riley adds `ZERNIO_API_KEY` + `ZERNIO_TWITTER_ACCOUNT_ID` (and optional `ZERNIO_PROFILE_ID`) on api-generated. Generate/HITL ship without them. |
 | **Offer CTA** | Posts drive to text +13054098546 and `/reserve` with founding UTM — into existing iMessage sales → $100 deposit. |
+
+## D6 — QStash-only posting schedules (2026-08-11)
+
+Vercel Hobby rejects sub-daily crons (`*/15 * * * *`). Posting schedules use **Upstash QStash** only. `/cron/posts/*` kept for signed/manual triggers.

@@ -8,10 +8,12 @@ Autonomous outbound for founding-cohort traffic → `/reserve` → iMessage sale
 
 ## Loop
 
-1. **Generate** (QStash Mon/Wed/Fri 14:00 UTC + Vercel cron backup) creates a batch of 3-5 X/LinkedIn ideas via OpenRouter (fallback: `sales/outbound-templates.md`).
+1. **Generate** (QStash Mon/Wed/Fri 14:00 UTC) creates a batch of 3-5 X/LinkedIn ideas via OpenRouter (fallback: `sales/outbound-templates.md`).
 2. **HITL approve** texts Riley: numbered hooks + `APPROVE ALL` / `REJECT ALL` / `APPROVE 1 3 5` + one-tap magic link `/ops/posts/approve?...`.
-3. **Publish** (every 15 min + immediate QStash enqueue after approval) sends approved ideas through **Zernio** (`https://zernio.com/api/v1/posts`).
+3. **Publish** (QStash every 15 min + immediate enqueue after approval) sends approved ideas through **Zernio** (`https://zernio.com/api/v1/posts`).
 4. **Log** outcomes in Neon `post_ideas` / `post_events` / `ai_events` (`surface=posting_generate`).
+
+> Note: Vercel Cron is **not** used for sub-daily schedules (Hobby plan limit). Scheduling is QStash-only. `/cron/posts/*` routes remain for manual/bearer triggers.
 
 ## Endpoints
 
@@ -19,8 +21,8 @@ Autonomous outbound for founding-cohort traffic → `/reserve` → iMessage sale
 |---|---|
 | `POST /webhooks/qstash/posts/generate` | QStash generate tick |
 | `POST /webhooks/qstash/posts/publish` | QStash publish tick |
-| `GET /cron/posts/generate` | Vercel Cron generate |
-| `GET /cron/posts/publish` | Vercel Cron publish |
+| `GET /cron/posts/generate` | Manual/bearer generate (not Vercel Cron - Hobby limit) |
+| `GET /cron/posts/publish` | Manual/bearer publish |
 | `GET /ops/posts/approve` | Magic-link approve/reject |
 | `GET /ops/posts/pending` | Latest pending batch JSON |
 | `GET /ops/posts/status` | Config + schedule status |
