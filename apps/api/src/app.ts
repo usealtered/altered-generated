@@ -7,6 +7,7 @@ import {
 } from "@altered/chat";
 import { createDb, cursorJobs } from "@altered/db";
 import { getServerEnv } from "@altered/env";
+import { waitUntil } from "@vercel/functions";
 import { Receiver } from "@upstash/qstash";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -61,7 +62,10 @@ app.post("/webhooks/sendblue", async (c) => {
   if (!handle) {
     return c.json({ error: "sendblue adapter not mounted" }, 500);
   }
-  return handle(c.req.raw);
+  // Chat SDK / Sendblue adapter fires processMessage without awaiting.
+  // On Vercel the isolate freezes after the HTTP response unless waitUntil
+  // keeps the work alive — without this you get 200 and no reply/typing/read.
+  return handle(c.req.raw, { waitUntil });
 });
 
 async function verifyQstash(req: Request) {

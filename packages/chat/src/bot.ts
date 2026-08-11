@@ -43,20 +43,52 @@ export function createAlteredChat() {
       startTyping?: () => Promise<unknown>;
       subscribe: () => Promise<unknown>;
     },
-    message: { text?: string | null; author?: { userId?: string } },
+    message: {
+      text?: string | null;
+      author?: { userId?: string };
+      raw?: { number?: string; from_number?: string; to_number?: string };
+    },
   ) => {
     const text = message.text?.trim();
     if (!text) return;
-    await thread.subscribe();
-    await thread.startTyping?.();
-    const phone = normalizePhone(message.author?.userId ?? "unknown");
-    const reply = await handleOperatorMessage({
-      ctx,
-      chatThreadId: thread.id,
+    // Prefer contact `number` from Sendblue payload; adapter author.userId uses
+    // from_number which can be the agent line on some inbound shapes.
+    const agentLine = normalizePhone(env.SENDBLUE_FROM_NUMBER ?? "");
+    const candidates = [
+      message.raw?.number,
+      message.author?.userId,
+      message.raw?.from_number,
+      message.raw?.to_number,
+    ]
+      .filter((v): v is string => Boolean(v))
+      .map((v) => normalizePhone(v))
+      .filter((v) => v && v !== agentLine);
+    const phone = candidates[0] ?? normalizePhone(message.author?.userId ?? "unknown");
+    console.info("[altered-ops] inbound message", {
       phone,
-      text,
+      threadId: thread.id,
+      textPreview: text.slice(0, 80),
     });
-    await thread.post(reply);
+    try {
+      await thread.subscribe();
+      await thread.startTyping?.();
+      const reply = await handleOperatorMessage({
+        ctx,
+        chatThreadId: thread.id,
+        phone,
+        text,
+      });
+      await thread.post(reply);
+      console.info("[altered-ops] reply posted", { phone, replyLen: reply.length });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[altered-ops] inbound handler failed", { phone, error: msg });
+      try {
+        await thread.post(`Error handling message: ${msg}`.slice(0, 400));
+      } catch {
+        /* ignore secondary send failure */
+      }
+    }
   };
 
   // Preferred path for Sendblue 1:1 iMessage/SMS

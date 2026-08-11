@@ -22,10 +22,9 @@ Last updated: 2026-08-10 (pre-test observability shipped; Riley smoke-testing iM
 
 ## Still open
 
-1. Riley smoke-test: text `+13054098546` from `+12368370221`.
-2. Confirm Sendblue webhook → `https://generated.api.usealtered.com/webhooks/sendblue` if no reply.
-3. Lock deposit + `PRIMARY_CHECKOUT_URL`.
-4. Post-test: invoice-accurate costs, FTS recall, sales surface split — see `memory-and-metrics.md`.
+1. Riley re-test iMessage after Sendblue `waitUntil`/await fix (webhook was 200’ing then freezing before reply).
+2. Lock deposit + `PRIMARY_CHECKOUT_URL`.
+3. Post-test: invoice-accurate costs, FTS recall, sales surface split — see `memory-and-metrics.md`.
 
 ## First moves in a new chat
 
